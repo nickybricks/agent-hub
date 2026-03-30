@@ -1,0 +1,22 @@
+[
+  {
+    "id": "1115c88e-bfc4-4dc1-b73a-fbb3ff960d18",
+    "agentId": "newsletter-summarizer",
+    "date": "2026-03-29",
+    "title": "No newsletters found",
+    "content": "No newsletter emails were found in the configured time window.",
+    "emailCount": 0,
+    "sources": [],
+    "createdAt": "2026-03-29T19:57:40.382Z"
+  },
+  {
+    "id": "fa3c2337-a2a8-459a-9e15-f61887684bc8",
+    "agentId": "newsletter-summarizer",
+    "date": "2026-03-29",
+    "title": "No newsletters found",
+    "content": "No newsletter emails were found in the configured time window.",
+    "emailCount": 0,
+    "sources": [],
+    "createdAt": "2026-03-29T06:03:46.934Z"
+  }
+]

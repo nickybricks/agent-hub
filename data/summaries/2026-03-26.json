@@ -1,0 +1,55 @@
+[
+  {
+    "id": "fad66afd-1183-455c-a30d-cf901267aa4d",
+    "agentId": "newsletter-summarizer",
+    "date": "2026-03-26",
+    "title": "No newsletters found",
+    "content": "No newsletter emails were found in the configured time window.",
+    "emailCount": 0,
+    "sources": [],
+    "createdAt": "2026-03-26T08:59:00.401Z"
+  },
+  {
+    "id": "50b4efb4-5967-464e-a9f3-addc8a975855",
+    "agentId": "newsletter-summarizer",
+    "date": "2026-03-26",
+    "title": "AI Newsletter Digest - March 26, 2026",
+    "content": "# AI Newsletter Digest - March 26, 2026\n\n## **LLM & AI Development**\n\n### **Claude Code Gets Major Auto Mode Update**\n- **Headline**: Anthropic launches auto mode for Claude Code that reduces manual approvals while maintaining safety checks\n- **Summary**: Claude Code now includes an \"auto mode\" that automatically decides whether to run file operations and shell commands without constant user approval. The system uses a classifier to filter risky actions while allowing safe operations to proceed automatically.\n- **Key Points**:\n  • Uses classifier-based filtering to detect destructive or sensitive operations\n  • Blocks risky actions and forces the model to try different approaches\n  • Only prompts users after repeated blocked attempts\n  • Available in Team plan as research preview, expanding to other plans soon\n  • Enables longer coding tasks without constant interruptions\n  • Should be used in isolated environments due to incomplete risk coverage\n\n### **Google's TurboQuant Speeds Up LLM Processing**\n- **Headline**: Google releases TurboQuant compression technique that speeds up LLM attention by up to 8x\n- **Summary**: Google Research developed TurboQuant to address the KV cache bottleneck (memory storage system) that slows down LLMs as context grows. The technique combines two methods to compress data efficiently while maintaining accuracy.\n- **Key Points**:\n  • Reduces KV cache size by 6x or more while keeping accuracy unchanged\n  • Speeds up attention computation by up to 8x on H100 GPUs\n  • Uses PolarQuant (converts vectors to magnitude/direction) and QJL (stores error corrections)\n  • Runs at 3-4 bits per value instead of 16-bit or 32-bit formats\n  • Requires no retraining or fine-tuning on existing models\n  • Works with models like Gemma and Mistral\n  • Improves performance for long conversations and agent workflows\n\n## **Major Product Launches & Shutdowns**\n\n### **OpenAI Shuts Down Sora Video App**\n- **Headline**: OpenAI discontinues its TikTok-like Sora social video app after just 6 months of operation\n- **Summary**: OpenAI announced it's shutting down the Sora app without providing specific reasons or timeline. The app saw declining downloads and limited revenue during its brief lifespan.\n- **Key Points**:\n  • App peaked at 3.3 million downloads in November, dropped to 1.1 million by February\n  • Generated only $2.1 million from in-app purchases during entire lifetime\n  • Shutdown cancels $1 billion Disney licensing deal for Disney/Marvel/Pixar/Star Wars content\n  • No money reportedly changed hands in the Disney deal\n  • No official reason given for the shutdown\n\n### **Apple Tests Standalone Siri App**\n- **Headline**: Apple internally testing dedicated Siri app and system-wide AI overhaul for iOS 27 and macOS 27\n- **Summary**: Apple is developing a standalone Siri application alongside major AI improvements planned for this year's operating system updates. The new approach will replace current Spotlight search with unified Siri interface.\n- **Key Points**:\n  • Shows past conversations in list or grid format\n  • Allows users to pin favorite chats and search old interactions\n  • Supports file uploads for analysis and text/voice switching\n  • Replaces Spotlight search with unified Siri interface in Dynamic Island\n  • Offers web summaries, images, bullet points, and deeper personal data access\n  • Part of larger AI overhaul for iOS 27 and macOS 27\n\n## **Hardware & Corporate Moves**\n\n### **Arm Releases First In-House Chip**\n- **Headline**: Arm Holdings launches its first self-manufactured processor after 36 years of only licensing designs\n- **Summary**: Arm has developed the Arm AGI CPU specifically for AI data center inference, with Meta as the debut customer. This marks a historic shift from exclusively licensing designs to competing alongside partners.\n- **Key Points**:\n  • Built using Arm Neoverse family of CPU IP cores through Meta partnership\n  • Production-ready processor designed for AI data center inference\n  • Development started in 2023, chips ready to order now\n  • Represents major strategy shift from licensing-only to direct competition\n  • Meta serves as the debut customer for the new processor\n\n### **Amazon Acquires Fauna Robotics**\n- **Headline**: Amazon buys humanoid robot startup Fauna Robotics, which makes \"approachable\" consumer and business robots\n- **Summary**: Amazon acquired the 2024-founded startup that creates user-friendly humanoid robots. Fauna will continue operating under its own name within Amazon.\n- **Key Points**:\n  • Founded in 2024 by former Meta and Google engineers\n  • Makes Sprout robot: $50,000, 3.5 feet tall, 50 lbs, bipedal design\n  • About 50 employees joining Amazon in New York City\n  • Financial terms not disclosed\n  • Will continue operating as Fauna Robotics under Amazon\n\n## **Design & Development Tools**\n\n### **Figma Launches AI Agent Design Tool**\n- **Headline**: Figma introduces use_figma tool allowing AI agents to create and edit designs directly in Figma files\n- **Summary**: The new tool enables AI agents to work within real Figma design systems rather than generating static outputs. It connects through Model Context Protocol (MCP) to various AI clients.\n- **Key Points**:\n  • Works with MCP clients like Claude Code, Codex, Cursor, and Copilot CLI\n  • Operates on real Figma files, not exported or generated mockups\n  • generate_figma_design converts HTML into editable Figma layers\n  • Supports multi-agent workflows across design and implementation\n  • Uses Skills (markdown instructions) to define design rules and conventions\n  • Currently in open beta\n\n## **Legal & Regulatory**\n\n### **Meta Faces $375 Million Child Safety Penalty**\n- **Headline**: New Mexico jury orders Meta to pay $375 million for endangering children on Instagram and Facebook\n- **Summary**: The case was framed as a products-liability claim arguing the platforms were defective, which bypasses Section 230 protections. This gives state attorneys general a tested legal strategy.\n- **Key Points**:\n  • Meta found liable on every count in the child safety case\n  • Legal strategy sidesteps Section 230 by treating platforms as defective products\n  • Provides 40+ state attorneys general with tested courtroom playbook\n  • Bench trial in May will determine required changes, not additional payments\n  • May require age verification, predator removal, and encrypted messaging modifications\n  • Case spans multiple states\n\n### **Trump Forms Tech Advisory Council**\n- **Headline**: President Trump appoints tech CEOs from Meta, NVIDIA, Dell, Oracle, AMD and others to White House science council\n- **Summary**: The President's Council of Advisors on Science and Technology now includes major tech leaders, with room to expand from 13 to 24 members.\n- **Key Points**:\n  • Includes Google co-founder Sergey Brin and VC Marc Andreessen\n  • Co-chaired by David Sacks (AI/crypto czar) and Michael Kratsios (science advisor)\n  • Many members have direct financial ties to Trump through donations and business deals\n  • Oracle backed TikTok takeover, others funded inauguration and White House ballroom\n  • Council can grow to 24 members total",
+    "emailCount": 3,
+    "sources": [
+      {
+        "sender": "AINews <swyx+ainews@substack.com>",
+        "subject": "[AINews] The Biggest Claude Launch of All Time"
+      },
+      {
+        "sender": "Techpresso <techpresso@dupple.com>",
+        "subject": "☕️ Arm releases first in-house chip"
+      },
+      {
+        "sender": "AlphaSignal <news@alphasignal.ai>",
+        "subject": "🤖 Anthropic Claude Code Auto Mode + Figma AI Agent Design Tool"
+      }
+    ],
+    "createdAt": "2026-03-26T08:58:44.451Z"
+  },
+  {
+    "id": "97e014ca-276b-4fb4-8db9-4697738e8bc4",
+    "agentId": "newsletter-summarizer",
+    "date": "2026-03-26",
+    "title": "No newsletters found",
+    "content": "No newsletter emails were found in the configured time window.",
+    "emailCount": 0,
+    "sources": [],
+    "createdAt": "2026-03-26T08:58:37.818Z"
+  },
+  {
+    "id": "601616a4-008b-49dd-852e-a30d29460539",
+    "agentId": "newsletter-summarizer",
+    "date": "2026-03-26",
+    "title": "No newsletters found",
+    "content": "No newsletter emails were found in the configured time window.",
+    "emailCount": 0,
+    "sources": [],
+    "createdAt": "2026-03-26T07:00:01.906Z"
+  }
+]

@@ -1,0 +1,43 @@
+{
+  "agents": [
+    {
+      "id": "newsletter-summarizer",
+      "name": "Newsletter Summarizer",
+      "description": "Fetches AI newsletters from Apple Mail and creates a unified daily digest using Claude AI.",
+      "icon": "📰",
+      "enabled": true,
+      "schedule": {
+        "enabled": true,
+        "time": "08:00",
+        "days": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ]
+      },
+      "settings": {
+        "senders": [
+          "techpresso@dupple.com",
+          "swyx@substack.com",
+          "swyx+ainews@substack.com",
+          "news@alphasignal.ai"
+        ],
+        "lookbackHours": 72,
+        "maxEmailsPerRun": 20,
+        "summaryStyle": "bullet-points",
+        "deliverEmail": false,
+        "deliverEmailTo": "nick@algner.de",
+        "llm": {
+          "provider": "anthropic",
+          "apiKey": "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",
+          "model": "claude-sonnet-4-20250514",
+          "systemPrompt": "You are an AI newsletter digest assistant. Your job is to read multiple AI/tech newsletters and summarize each article with the key points as bullet points. Write in English.\n\nFor each article, write a summary of 1–3 sentences depending on the complexity of the topic (more or fewer sentences as needed). Keep all content simple and easy to understand so it can be read quickly.\n\nUse this structure for each article:\n- **Headline**: name the core point in 1 sentence\n- **Summary**: 1–3 sentences, simple language\n- **Key Points**: 3–7 clear, short bullet points with the most important facts or consequences\n- **Optional**: a very brief recommendation or conclusion (1 sentence), if useful\n\nRules:\n- Use simple words and short sentences.\n- If technical terms or abbreviations appear, explain them briefly in parentheses ( ) right after. 1-2 sentences if needed. That's fine.\n- If information is missing or unclear, briefly note it (e.g. \"Not enough information on X\").\n- Write in English.\n- Use markdown formatting.\n- Avoid redundancy — if multiple newsletters cover the same story, consolidate into one entry with the best details from each source.\n- Start with a short title for today's digest (as a markdown # heading)."
+        }
+      }
+    }
+  ]
+}

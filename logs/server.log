@@ -1,0 +1,420 @@
+========================================
+Starting Agent Hub at Sun Mar 22 16:22:26 CET 2026
+========================================
+⨯ Failed to start server
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at <unknown> (Error: listen EADDRINUSE: address already in use 0.0.0.0:3000) {
+  code: 'EADDRINUSE',
+  errno: -48,
+  syscall: 'listen',
+  address: '0.0.0.0',
+  port: 3000
+}
+========================================
+Starting Agent Hub at Sun Mar 22 16:22:36 CET 2026
+========================================
+⨯ Failed to start server
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at <unknown> (Error: listen EADDRINUSE: address already in use 0.0.0.0:3000) {
+  code: 'EADDRINUSE',
+  errno: -48,
+  syscall: 'listen',
+  address: '0.0.0.0',
+  port: 3000
+}
+========================================
+Starting Agent Hub at Sun Mar 22 16:22:47 CET 2026
+========================================
+⨯ Failed to start server
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at <unknown> (Error: listen EADDRINUSE: address already in use 0.0.0.0:3000) {
+  code: 'EADDRINUSE',
+  errno: -48,
+  syscall: 'listen',
+  address: '0.0.0.0',
+  port: 3000
+}
+========================================
+Starting Agent Hub at Sun Mar 22 16:22:57 CET 2026
+========================================
+⨯ Failed to start server
+Error: listen EADDRINUSE: address already in use 0.0.0.0:3000
+    at <unknown> (Error: listen EADDRINUSE: address already in use 0.0.0.0:3000) {
+  code: 'EADDRINUSE',
+  errno: -48,
+  syscall: 'listen',
+  address: '0.0.0.0',
+  port: 3000
+}
+========================================
+Starting Agent Hub at Sun Mar 22 16:23:08 CET 2026
+========================================
+▲ Next.js 16.2.1
+- Local:         http://localhost:3000
+- Network:       http://0.0.0.0:3000
+✓ Ready in 125ms
+========================================
+Starting Agent Hub at Mon Mar 23 08:51:34 CET 2026
+========================================
+▲ Next.js 16.2.1
+- Local:         http://localhost:3000
+- Network:       http://0.0.0.0:3000
+✓ Ready in 114ms
+/Users/bricks/Developer/mail-workflow/start-server.sh: line 18: 54579 Killed: 9               npx next start -H 0.0.0.0 -p 3000
+========================================
+Starting Agent Hub at Mon Mar 23 15:09:09 CET 2026
+========================================
+▲ Next.js 16.2.1
+- Local:         http://localhost:3000
+- Network:       http://0.0.0.0:3000
+✓ Ready in 199ms
+/Users/bricks/Developer/mail-workflow/start-server.sh: line 18: 65959 Killed: 9               npx next start -H 0.0.0.0 -p 3000
+========================================
+Starting Agent Hub at Mon Mar 23 15:13:18 CET 2026
+========================================
+▲ Next.js 16.2.1
+- Local:         http://localhost:3000
+- Network:       http://0.0.0.0:3000
+✓ Ready in 255ms
+/Users/bricks/Developer/mail-workflow/start-server.sh: line 18: 67440 Killed: 9               npx next start -H 0.0.0.0 -p 3000
+========================================
+Starting Agent Hub at Mon Mar 23 15:15:45 CET 2026
+========================================
+▲ Next.js 16.2.1
+- Local:         http://localhost:3000
+- Network:       http://0.0.0.0:3000
+✓ Ready in 101ms
+🔍 Fetching newsletters from Apple Mail...
+724:731: syntax error: Expected end of line, etc. but found identifier. (-2741)
+Error fetching emails from Apple Mail: Error: Command failed: osascript -e '
+    tell application "Mail"
+      set cutoffDate to (current date) - (24 * 60 * 60)
+      set matchingMessages to {}
+      set msgCount to 0
+
+      repeat with acct in accounts
+        repeat with mb in mailboxes of acct
+          try
+            set msgs to (messages of mb whose date received > cutoffDate)
+            repeat with msg in msgs
+              if msgCount ≥ 20 then exit repeat
+              try
+                if sender of msg contains "techpresso@dupple.com" or sender of msg contains "swyx@substack.com" or sender of msg contains "swyx+ainews@substack.com" or sender of msg contains "news@alphasignal.ai" then
+                  set senderName to sender of msg
+                  set senderAddr to extract address from sender of msg
+                  set msgSubject to subject of msg
+                  set msgDate to date received of msg as string
+                  set msgContent to content of msg
+                  set msgId to message id of msg
+                  set msgRead to read status of msg
+
+                  -- Truncate very long emails
+                  if length of msgContent > 10000 then
+                    set msgContent to text 1 thru 10000 of msgContent
+                  end if
+
+                  set end of matchingMessages to "---EMAIL_START---" & ¬
+                    "ID:" & msgId & ¬
+                    "---FIELD---" & "SUBJECT:" & msgSubject & ¬
+                    "---FIELD---" & "SENDER:" & senderName & ¬
+                    "---FIELD---" & "SENDER_EMAIL:" & senderAddr & ¬
+                    "---FIELD---" & "DATE:" & msgDate & ¬
+                    "---FIELD---" & "READ:" & (msgRead as string) & ¬
+                    "---FIELD---" & "BODY:" & msgContent & ¬
+                    "---EMAIL_END---"
+                  set msgCount to msgCount + 1
+                end if
+              end try
+            end repeat
+            if msgCount ≥ 20 then exit repeat
+          end try
+        end repeat
+        if msgCount ≥ 20 then exit repeat
+      end repeat
+
+      set AppleScript'\''s text item delimiters to "|||"
+      return matchingMessages as string
+    end tell
+  '
+724:731: syntax error: Expected end of line, etc. but found identifier. (-2741)
+
+    at <unknown> (.next/server/chunks/[root-of-the-server]__0mw8bpc._.js:87:30)
+    at sC (.next/server/chunks/[root-of-the-server]__0mw8bpc._.js:87:640)
+    at sD (.next/server/chunks/[root-of-the-server]__0mw8bpc._.js:99:696) {
+  status: 1,
+  signal: null,
+  output: [
+    null,
+    <Buffer >,
+    <Buffer 37 32 34 3a 37 33 31 3a 20 73 79 6e 74 61 78 20 65 72 72 6f 72 3a 20 45 78 70 65 63 74 65 64 20 65 6e 64 20 6f 66 20 6c 69 6e 65 2c 20 65 74 63 2e 20 ... 30 more bytes>
+  ],
+  pid: 86306,
+  stdout: <Buffer >,
+  stderr: <Buffer 37 32 34 3a 37 33 31 3a 20 73 79 6e 74 61 78 20 65 72 72 6f 72 3a 20 45 78 70 65 63 74 65 64 20 65 6e 64 20 6f 66 20 6c 69 6e 65 2c 20 65 74 63 2e 20 ... 30 more bytes>
+}
+📧 Found 0 newsletter(s)
+🤖 Summarizing with Claude...
+✅ Summary created: No newsletters found
+📤 Sending digest email...
+71:78: syntax error: Expected end of line but found identifier. (-2741)
+Error sending digest email: Error: Command failed: osascript -e '
+    tell application "Mail"
+      set newMessage to make new outgoing message with properties {subject:"📰 No newsletters found", content:"No newsletter emails were found in the configured time window.
+
+────────────────────
+Generated from 0 newsletter(s) on 3/24/2026
+Sources: ", visible:false}
+      tell newMessage
+        make new to recipient at end of to recipients with properties {address:"nick@algner.de"}
+      end tell
+      send newMessage
+    end tell
+  '
+71:78: syntax error: Expected end of line but found identifier. (-2741)
+
+    at <unknown> (.next/server/chunks/[root-of-the-server]__0mw8bpc._.js:99:24)
+    at sC (.next/server/chunks/[root-of-the-server]__0mw8bpc._.js:99:192)
+    at async sD (.next/server/chunks/[root-of-the-server]__0mw8bpc._.js:99:690) {
+  status: 1,
+  signal: null,
+  output: [
+    null,
+    <Buffer >,
+    <Buffer 37 31 3a 37 38 3a 20 73 79 6e 74 61 78 20 65 72 72 6f 72 3a 20 45 78 70 65 63 74 65 64 20 65 6e 64 20 6f 66 20 6c 69 6e 65 20 62 75 74 20 66 6f 75 6e ... 22 more bytes>
+  ],
+  pid: 86307,
+  stdout: <Buffer >,
+  stderr: <Buffer 37 31 3a 37 38 3a 20 73 79 6e 74 61 78 20 65 72 72 6f 72 3a 20 45 78 70 65 63 74 65 64 20 65 6e 64 20 6f 66 20 6c 69 6e 65 20 62 75 74 20 66 6f 75 6e ... 22 more bytes>
+}
+🎉 Newsletter agent run complete!
+🔍 Fetching newsletters from Apple Mail...
+📧 Found 3 newsletter(s)
+🤖 Summarizing with Claude...
+🔍 Fetching newsletters from Apple Mail...
+724:731: syntax error: Expected end of line, etc. but found identifier. (-2741)
+Error fetching emails from Apple Mail: Error: Command failed: osascript -e '
+    tell application "Mail"
+      set cutoffDate to (current date) - (24 * 60 * 60)
+      set matchingMessages to {}
+      set msgCount to 0
+
+      repeat with acct in accounts
+        repeat with mb in mailboxes of acct
+          try
+            set msgs to (messages of mb whose date received > cutoffDate)
+            repeat with msg in msgs
+              if msgCount ≥ 20 then exit repeat
+              try
+                if sender of msg contains "techpresso@dupple.com" or sender of msg contains "swyx@substack.com" or sender of msg contains "swyx+ainews@substack.com" or sender of msg contains "news@alphasignal.ai" then
+                  set senderName to sender of msg
+                  set senderAddr to extract address from sender of msg
+                  set msgSubject to subject of msg
+                  set msgDate to date received of msg as string
+                  set msgContent to content of msg
+                  set msgId to message id of msg
+                  set msgRead to read status of msg
+
+                  -- Truncate very long emails
+                  if length of msgContent > 10000 then
+                    set msgContent to text 1 thru 10000 of msgContent
+                  end if
+
+                  set end of matchingMessages to "---EMAIL_START---" & ¬
+                    "ID:" & msgId & ¬
+                    "---FIELD---" & "SUBJECT:" & msgSubject & ¬
+                    "---FIELD---" & "SENDER:" & senderName & ¬
+                    "---FIELD---" & "SENDER_EMAIL:" & senderAddr & ¬
+                    "---FIELD---" & "DATE:" & msgDate & ¬
+                    "---FIELD---" & "READ:" & (msgRead as string) & ¬
+                    "---FIELD---" & "BODY:" & msgContent & ¬
+                    "---EMAIL_END---"
+                  set msgCount to msgCount + 1
+                end if
+              end try
+            end repeat
+            if msgCount ≥ 20 then exit repeat
+          end try
+        end repeat
+        if msgCount ≥ 20 then exit repeat
+      end repeat
+
+      set AppleScript'\''s text item delimiters to "|||"
+      return matchingMessages as string
+    end tell
+  '
+724:731: syntax error: Expected end of line, etc. but found identifier. (-2741)
+
+    at <unknown> (.next/server/chunks/[root-of-the-server]__0mw8bpc._.js:87:30)
+    at sC (.next/server/chunks/[root-of-the-server]__0mw8bpc._.js:87:640)
+    at sD (.next/server/chunks/[root-of-the-server]__0mw8bpc._.js:99:696) {
+  status: 1,
+  signal: null,
+  output: [
+    null,
+    <Buffer >,
+    <Buffer 37 32 34 3a 37 33 31 3a 20 73 79 6e 74 61 78 20 65 72 72 6f 72 3a 20 45 78 70 65 63 74 65 64 20 65 6e 64 20 6f 66 20 6c 69 6e 65 2c 20 65 74 63 2e 20 ... 30 more bytes>
+  ],
+  pid: 502,
+  stdout: <Buffer >,
+  stderr: <Buffer 37 32 34 3a 37 33 31 3a 20 73 79 6e 74 61 78 20 65 72 72 6f 72 3a 20 45 78 70 65 63 74 65 64 20 65 6e 64 20 6f 66 20 6c 69 6e 65 2c 20 65 74 63 2e 20 ... 30 more bytes>
+}
+📧 Found 0 newsletter(s)
+🤖 Summarizing with Claude...
+✅ Summary created: No newsletters found
+🎉 Newsletter agent run complete!
+✅ Summary created: AI Newsletter Digest - March 26, 2026
+🎉 Newsletter agent run complete!
+🔍 Fetching newsletters from Apple Mail...
+724:731: syntax error: Expected end of line, etc. but found identifier. (-2741)
+Error fetching emails from Apple Mail: Error: Command failed: osascript -e '
+    tell application "Mail"
+      set cutoffDate to (current date) - (24 * 60 * 60)
+      set matchingMessages to {}
+      set msgCount to 0
+
+      repeat with acct in accounts
+        repeat with mb in mailboxes of acct
+          try
+            set msgs to (messages of mb whose date received > cutoffDate)
+            repeat with msg in msgs
+              if msgCount ≥ 20 then exit repeat
+              try
+                if sender of msg contains "techpresso@dupple.com" or sender of msg contains "swyx@substack.com" or sender of msg contains "swyx+ainews@substack.com" or sender of msg contains "news@alphasignal.ai" then
+                  set senderName to sender of msg
+                  set senderAddr to extract address from sender of msg
+                  set msgSubject to subject of msg
+                  set msgDate to date received of msg as string
+                  set msgContent to content of msg
+                  set msgId to message id of msg
+                  set msgRead to read status of msg
+
+                  -- Truncate very long emails
+                  if length of msgContent > 10000 then
+                    set msgContent to text 1 thru 10000 of msgContent
+                  end if
+
+                  set end of matchingMessages to "---EMAIL_START---" & ¬
+                    "ID:" & msgId & ¬
+                    "---FIELD---" & "SUBJECT:" & msgSubject & ¬
+                    "---FIELD---" & "SENDER:" & senderName & ¬
+                    "---FIELD---" & "SENDER_EMAIL:" & senderAddr & ¬
+                    "---FIELD---" & "DATE:" & msgDate & ¬
+                    "---FIELD---" & "READ:" & (msgRead as string) & ¬
+                    "---FIELD---" & "BODY:" & msgContent & ¬
+                    "---EMAIL_END---"
+                  set msgCount to msgCount + 1
+                end if
+              end try
+            end repeat
+            if msgCount ≥ 20 then exit repeat
+          end try
+        end repeat
+        if msgCount ≥ 20 then exit repeat
+      end repeat
+
+      set AppleScript'\''s text item delimiters to "|||"
+      return matchingMessages as string
+    end tell
+  '
+724:731: syntax error: Expected end of line, etc. but found identifier. (-2741)
+
+    at <unknown> (.next/server/chunks/[root-of-the-server]__0mw8bpc._.js:87:30)
+    at sC (.next/server/chunks/[root-of-the-server]__0mw8bpc._.js:87:640)
+    at sD (.next/server/chunks/[root-of-the-server]__0mw8bpc._.js:99:696) {
+  status: 1,
+  signal: null,
+  output: [
+    null,
+    <Buffer >,
+    <Buffer 37 32 34 3a 37 33 31 3a 20 73 79 6e 74 61 78 20 65 72 72 6f 72 3a 20 45 78 70 65 63 74 65 64 20 65 6e 64 20 6f 66 20 6c 69 6e 65 2c 20 65 74 63 2e 20 ... 30 more bytes>
+  ],
+  pid: 519,
+  stdout: <Buffer >,
+  stderr: <Buffer 37 32 34 3a 37 33 31 3a 20 73 79 6e 74 61 78 20 65 72 72 6f 72 3a 20 45 78 70 65 63 74 65 64 20 65 6e 64 20 6f 66 20 6c 69 6e 65 2c 20 65 74 63 2e 20 ... 30 more bytes>
+}
+📧 Found 0 newsletter(s)
+🤖 Summarizing with Claude...
+✅ Summary created: No newsletters found
+🎉 Newsletter agent run complete!
+🔍 Fetching newsletters from Apple Mail...
+724:731: syntax error: Expected end of line, etc. but found identifier. (-2741)
+Error fetching emails from Apple Mail: Error: Command failed: osascript -e '
+    tell application "Mail"
+      set cutoffDate to (current date) - (24 * 60 * 60)
+      set matchingMessages to {}
+      set msgCount to 0
+
+      repeat with acct in accounts
+        repeat with mb in mailboxes of acct
+          try
+            set msgs to (messages of mb whose date received > cutoffDate)
+            repeat with msg in msgs
+              if msgCount ≥ 20 then exit repeat
+              try
+                if sender of msg contains "techpresso@dupple.com" or sender of msg contains "swyx@substack.com" or sender of msg contains "swyx+ainews@substack.com" or sender of msg contains "news@alphasignal.ai" then
+                  set senderName to sender of msg
+                  set senderAddr to extract address from sender of msg
+                  set msgSubject to subject of msg
+                  set msgDate to date received of msg as string
+                  set msgContent to content of msg
+                  set msgId to message id of msg
+                  set msgRead to read status of msg
+
+                  -- Truncate very long emails
+                  if length of msgContent > 10000 then
+                    set msgContent to text 1 thru 10000 of msgContent
+                  end if
+
+                  set end of matchingMessages to "---EMAIL_START---" & ¬
+                    "ID:" & msgId & ¬
+                    "---FIELD---" & "SUBJECT:" & msgSubject & ¬
+                    "---FIELD---" & "SENDER:" & senderName & ¬
+                    "---FIELD---" & "SENDER_EMAIL:" & senderAddr & ¬
+                    "---FIELD---" & "DATE:" & msgDate & ¬
+                    "---FIELD---" & "READ:" & (msgRead as string) & ¬
+                    "---FIELD---" & "BODY:" & msgContent & ¬
+                    "---EMAIL_END---"
+                  set msgCount to msgCount + 1
+                end if
+              end try
+            end repeat
+            if msgCount ≥ 20 then exit repeat
+          end try
+        end repeat
+        if msgCount ≥ 20 then exit repeat
+      end repeat
+
+      set AppleScript'\''s text item delimiters to "|||"
+      return matchingMessages as string
+    end tell
+  '
+724:731: syntax error: Expected end of line, etc. but found identifier. (-2741)
+
+    at <unknown> (.next/server/chunks/[root-of-the-server]__0mw8bpc._.js:87:30)
+    at sC (.next/server/chunks/[root-of-the-server]__0mw8bpc._.js:87:640)
+    at sD (.next/server/chunks/[root-of-the-server]__0mw8bpc._.js:99:696) {
+  status: 1,
+  signal: null,
+  output: [
+    null,
+    <Buffer >,
+    <Buffer 37 32 34 3a 37 33 31 3a 20 73 79 6e 74 61 78 20 65 72 72 6f 72 3a 20 45 78 70 65 63 74 65 64 20 65 6e 64 20 6f 66 20 6c 69 6e 65 2c 20 65 74 63 2e 20 ... 30 more bytes>
+  ],
+  pid: 92750,
+  stdout: <Buffer >,
+  stderr: <Buffer 37 32 34 3a 37 33 31 3a 20 73 79 6e 74 61 78 20 65 72 72 6f 72 3a 20 45 78 70 65 63 74 65 64 20 65 6e 64 20 6f 66 20 6c 69 6e 65 2c 20 65 74 63 2e 20 ... 30 more bytes>
+}
+📧 Found 0 newsletter(s)
+🤖 Summarizing with Claude...
+✅ Summary created: No newsletters found
+🎉 Newsletter agent run complete!
+🔍 Fetching newsletters from Apple Mail...
+📧 Found 1 newsletter(s)
+🤖 Summarizing with Claude...
+✅ Summary created: AI Newsletter Digest - March 29, 2026
+🎉 Newsletter agent run complete!
+🔍 Fetching newsletters from Apple Mail...
+📧 Found 5 newsletter(s)
+🤖 Summarizing with Claude...
+✅ Summary created: AI Newsletter Digest - March 29, 2026
+🎉 Newsletter agent run complete!

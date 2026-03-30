@@ -1,0 +1,460 @@
+[
+  {
+    "id": "6a1f6413-9ce1-47b9-b301-e422079019f3",
+    "agentId": "newsletter-summarizer",
+    "status": "completed",
+    "startedAt": "2026-03-30T07:57:53.145Z",
+    "completedAt": "2026-03-30T07:58:47.342Z",
+    "summary": {
+      "id": "803da0aa-5c92-4877-88c6-c3fcd368da0a",
+      "agentId": "newsletter-summarizer",
+      "date": "2026-03-30",
+      "title": "AI Newsletter Digest - March 29, 2026",
+      "content": "# AI Newsletter Digest - March 29, 2026\n\n## Enterprise AI Agent Security\n\n**Headline**: OpenClaw agents need enterprise-grade security to move beyond local Mac Mini deployments.\n\n**Summary**: Developers are scaling AI agents like OpenClaw from local machines to production, but this creates major security risks for enterprises. The shift requires abandoning local hardware for secure, managed infrastructure with proper guardrails and zero-trust architecture.\n\n**Key Points**:\n- OpenClaw agents often need high-level system privileges, creating unacceptable risk when given broad access to company files and networks\n- Meta incident showed how an agent wiped hundreds of emails when it lost safety instructions during \"context window compaction\" (memory compression)\n- Studies found tens of thousands of exposed OpenClaw agents vulnerable to cyberattacks and remote code execution\n- Solutions include AWS Lightsail 1-click deployment, Nvidia's NemoClaw sandbox, and Zenity's real-time security monitoring\n- Enterprise deployment requires isolated virtual machines, separate accounts/tokens, and minimum privilege access\n- Major cloud providers are building managed infrastructure specifically for secure agent deployment\n\n## New AI Model Releases\n\n### Anthropic's \"Claude Mythos\" Leak\n**Headline**: Leaked data reveals Anthropic is testing a new \"Capybara\" tier model more powerful than Opus.\n\n**Summary**: A data leak exposed Anthropic's unreleased Claude Mythos model, described as their most capable AI with dramatically higher scores in coding, reasoning, and cybersecurity tasks.\n\n**Key Points**:\n- Belongs to new \"Capybara\" tier above current Opus model\n- Claims to be \"far ahead of any other AI model in cyber capabilities\"\n- Will be released first to defenders to help harden code against AI-driven exploits\n- Rollout constrained by cost and safety concerns\n- Leak occurred during widespread Anthropic service issues with 529 errors\n\n### Google's Gemini 3.1 Flash Live\n**Headline**: Google launches real-time speech-to-speech AI that processes audio directly without text conversion.\n\n**Summary**: Gemini 3.1 Flash Live enables building voice agents that listen and respond in real-time by processing audio directly, maintaining tone and reducing latency compared to traditional speech-to-text pipelines.\n\n**Key Points**:\n- Uses continuous stateful sessions instead of request-response APIs\n- Supports 90+ languages in same conversation without restarting\n- Filters background noise automatically\n- Built-in function calling for external tool integration during conversations\n- Available through streaming API with WebRTC support for production\n\n### Mistral's Voxtral TTS\n**Headline**: Mistral releases open-weight text-to-speech model with 70ms latency and voice cloning capabilities.\n\n**Summary**: Voxtral TTS is a 4B parameter model that generates expressive multilingual speech from text, adapting to new voices using just 3 seconds of reference audio.\n\n**Key Points**:\n- Supports 9 languages with accent transfer capabilities\n- Achieves ~70ms latency for fast audio response\n- Outperforms ElevenLabs v2.5 Flash in human evaluations\n- Available via API, Mistral Studio, or open weights on Hugging Face\n- Can combine with Voxtral Transcribe for end-to-end speech systems\n\n## Development Tools & Infrastructure\n\n**Headline**: OpenAI adds plugins to Codex for connecting coding workflows with external tools like Slack and Notion.\n\n**Summary**: Codex plugins bundle workflows and app integrations into reusable units, letting developers handle planning, research, and coordination tasks across multiple tools in one workflow.\n\n**Key Points**:\n- Plugins include skills (step-by-step prompts) and app integrations with authentication\n- Support MCP servers for remote tools and shared context\n- Enable workflows spanning Google Drive suite, Slack, Figma, Gmail in single loop\n- Available through plugin directory with team-wide marketplace sharing\n- Move Codex beyond isolated coding to real-world multi-tool tasks\n\n## Hardware & Infrastructure News\n\n**Headline**: H100 GPU rental prices are rising dramatically after hitting bottom in December 2025.\n\n**Summary**: Nvidia H100 prices have increased significantly since December, with chips now worth more than 3 years ago due to chip shortages and demand from reasoning models and AI agents.\n\n**Key Points**:\n- Prices bottomed out after DeepSeek R1 shock but have surged since December 2025\n- 4-year-old chips now more valuable than initial depreciation schedules assumed\n- Related to general chip shortage and reasoning model/agent inflection\n- Better inference software makes older chips much more useful\n- Has major implications for data center business models and GPU economics\n\n## Company News & Legal Updates\n\n### Apple Hardware Changes\n**Headline**: Apple discontinues Mac Pro after 20 years, pushes Mac Studio as pro desktop replacement.\n\n**Summary**: Apple officially ended the Mac Pro line and positions the M3 Ultra-equipped Mac Studio as the professional desktop solution, with new Thunderbolt 5 connectivity for scaling performance.\n\n**Key Points**:\n- Mac Studio configurable with M3 Ultra chip, 256GB memory, 16TB storage\n- macOS Tahoe feature connects multiple Macs via Thunderbolt 5 with low-latency RDMA\n- Gives high-end users scaling options without dedicated Mac Pro hardware\n\n### Legal and Policy Updates\n**Headline**: Judge blocks Pentagon from blacklisting Anthropic over AI model usage restrictions.\n\n**Summary**: A federal judge reversed the Trump administration's decision to label Anthropic a \"supply chain risk\" after the company tried to enforce limits on government AI use.\n\n**Key Points**:\n- Conflict arose over Anthropic's bans on autonomous weapons and mass surveillance\n- Judge ruled government orders violated Anthropic's free speech protections\n- Decision described as attempt to \"cripple Anthropic\" for enforcing usage limits\n\n## Research & Open Source\n\n**Headline**: Meta releases brain-reading AI and open coding models continue challenging closed alternatives.\n\n**Summary**: Meta's TRIBE v2 predicts human brain responses across vision, audio, and language, while Chinese models like GLM-5.1 narrow the gap with closed coding models.\n\n**Key Points**:\n- TRIBE v2 trained on 1,000+ hours of fMRI data from 720 subjects, predicts 70,000 brain voxels\n- Limited by fMRI's seconds-long delay and missing sensory channels\n- GLM-5.1 available to all coding plan users with agent capabilities\n- Local model economics improving with quantization and cache optimizations\n- TurboQuant paper disputed over methodology and benchmark comparisons\n\n**Recommendation**: Organizations should start planning enterprise AI agent security now, as the technology is rapidly moving from experimental to production-ready.",
+      "emailCount": 5,
+      "sources": [
+        {
+          "sender": "AlphaSignal <news@alphasignal.ai>",
+          "subject": "🦞 The end of the Mac Mini era for scaling OpenClaw agents?"
+        },
+        {
+          "sender": "Techpresso <techpresso@dupple.com>",
+          "subject": "☕️ Meta unveils brain-reading AI"
+        },
+        {
+          "sender": "AINews <swyx+ainews@substack.com>",
+          "subject": "[AINews] H100 prices are melting *UP*"
+        },
+        {
+          "sender": "AlphaSignal <news@alphasignal.ai>",
+          "subject": "🎙️ Google Gemini Flash Live: Real-time speech-to-speech voice agents"
+        },
+        {
+          "sender": "Techpresso <techpresso@dupple.com>",
+          "subject": "☕️ Anthropic data leak reveals new AI model"
+        }
+      ],
+      "createdAt": "2026-03-30T07:58:47.340Z"
+    }
+  },
+  {
+    "id": "40eb84a3-ea73-40e1-b384-8682fe049e6a",
+    "agentId": "newsletter-summarizer",
+    "status": "completed",
+    "startedAt": "2026-03-30T07:56:34.657Z",
+    "completedAt": "2026-03-30T07:56:55.171Z",
+    "summary": {
+      "id": "167236ef-0a3a-47a7-9609-04ffd875df7e",
+      "agentId": "newsletter-summarizer",
+      "date": "2026-03-30",
+      "title": "AI Newsletter Digest - March 29, 2026",
+      "content": "# AI Newsletter Digest - March 29, 2026\n\n## AI Agent Security & Enterprise Deployment\n\n### **OpenClaw Enterprise Scaling Challenges**\n- **Headline**: OpenClaw AI agents face major security risks when moving from personal use to enterprise deployment.\n- **Summary**: OpenClaw, a popular AI agent framework, has sparked developer enthusiasm for automation but creates significant security vulnerabilities in corporate environments. The shift from local Mac Mini deployments to enterprise-grade infrastructure requires strict security measures and zero-trust architecture.\n- **Key Points**:\n  • OpenClaw agents typically need high-level system privileges (like developers/analysts) to perform tasks effectively\n  • Non-deterministic AI models with broad network access create unacceptable enterprise security risks\n  • Local hardware deployments don't meet enterprise compliance standards\n  • BitStrike found tens of thousands of exposed OpenClaw agents vulnerable to cyberattacks\n  • BitDefender discovered 100,000+ instances using unencrypted communication with remote code execution (RCE) vulnerabilities\n  • Meta incident: Director's OpenClaw agent wiped hundreds of emails after losing safety instructions during \"context window compaction\" (when the AI compresses old information to save memory)\n  • Traditional Identity and Access Management (IAM) protocols break down with autonomous agents\n\n### **Enterprise Security Solutions**\n- **Headline**: Major tech companies are building secure infrastructure solutions for enterprise AI agent deployment.\n- **Summary**: Cloud providers and security firms are developing managed solutions that wrap OpenClaw in enterprise-grade security controls, moving away from raw open-source installations.\n- **Key Points**:\n  • **Amazon Lightsail**: 1-click OpenClaw deployment with AWS Bedrock integration and managed security\n  • **Nvidia NemoClaw**: Wraps OpenClaw in \"OpenShell\" sandbox with OS-level restrictions and Nemotron model integration\n  • **Zenity**: Open-source security framework that inspects and blocks risky agent actions in real-time\n  • Microsoft Defender recommends treating agents as \"untrusted code execution\"\n  • **CLAW-10 framework** by Onyx AI defines enterprise readiness requirements including sandboxed execution, role-based access, audit logging, and data isolation\n  • Companies successfully using cloud-sandboxed agents for contract tracking, incident reporting, and task automation\n\n### **Zero-Trust Agent Architecture**\n- **Headline**: Enterprise AI agent deployment requires zero-trust security principles with strict isolation and monitoring.\n- **Summary**: Security experts recommend treating autonomous agents as potentially compromised systems from day one, requiring dedicated environments and minimal privileges.\n- **Key Points**:\n  • Run agents in isolated, disposable virtual machines\n  • Provide dedicated accounts, tokens, and datasets (assume compromise)\n  • Monitor agent instructions and state for unexpected persistent rules\n  • Implement minimum required permissions rather than inheriting human user access\n  • Use immutable audit logging for compliance and incident response\n  • Verify supply chains with signed extensions and automated security scanning\n\n**Conclusion**: The rapid enterprise adoption of AI agents is driving a fundamental shift toward secure, managed infrastructure that balances operational autonomy with strict security guardrails.",
+      "emailCount": 1,
+      "sources": [
+        {
+          "sender": "AlphaSignal <news@alphasignal.ai>",
+          "subject": "🦞 The end of the Mac Mini era for scaling OpenClaw agents?"
+        }
+      ],
+      "createdAt": "2026-03-30T07:56:55.169Z"
+    }
+  },
+  {
+    "id": "65a3141d-0383-4928-a048-965bbcdde463",
+    "agentId": "newsletter-summarizer",
+    "status": "completed",
+    "startedAt": "2026-03-30T06:00:01.886Z",
+    "completedAt": "2026-03-30T06:00:01.957Z",
+    "summary": {
+      "id": "5ddd7fd2-2ebb-4625-a6ff-0577d61333e1",
+      "agentId": "newsletter-summarizer",
+      "date": "2026-03-30",
+      "title": "No newsletters found",
+      "content": "No newsletter emails were found in the configured time window.",
+      "emailCount": 0,
+      "sources": [],
+      "createdAt": "2026-03-30T06:00:01.957Z"
+    }
+  },
+  {
+    "id": "a1feef35-52d7-421b-a599-fffb06bd13d3",
+    "agentId": "newsletter-summarizer",
+    "status": "completed",
+    "startedAt": "2026-03-29T19:57:39.977Z",
+    "completedAt": "2026-03-29T19:57:40.383Z",
+    "summary": {
+      "id": "1115c88e-bfc4-4dc1-b73a-fbb3ff960d18",
+      "agentId": "newsletter-summarizer",
+      "date": "2026-03-29",
+      "title": "No newsletters found",
+      "content": "No newsletter emails were found in the configured time window.",
+      "emailCount": 0,
+      "sources": [],
+      "createdAt": "2026-03-29T19:57:40.382Z"
+    }
+  },
+  {
+    "id": "d7a0e233-3bf7-41c2-93e6-f6dd24568238",
+    "agentId": "newsletter-summarizer",
+    "status": "completed",
+    "startedAt": "2026-03-29T06:03:22.670Z",
+    "completedAt": "2026-03-29T06:03:46.935Z",
+    "summary": {
+      "id": "fa3c2337-a2a8-459a-9e15-f61887684bc8",
+      "agentId": "newsletter-summarizer",
+      "date": "2026-03-29",
+      "title": "No newsletters found",
+      "content": "No newsletter emails were found in the configured time window.",
+      "emailCount": 0,
+      "sources": [],
+      "createdAt": "2026-03-29T06:03:46.934Z"
+    }
+  },
+  {
+    "id": "5b4d1c7e-525f-4237-8629-c476be6b685b",
+    "agentId": "newsletter-summarizer",
+    "status": "completed",
+    "startedAt": "2026-03-28T07:09:44.738Z",
+    "completedAt": "2026-03-28T07:11:54.108Z",
+    "summary": {
+      "id": "78625aa6-425d-4ad4-ab7f-d38cbdbd644f",
+      "agentId": "newsletter-summarizer",
+      "date": "2026-03-28",
+      "title": "No newsletters found",
+      "content": "No newsletter emails were found in the configured time window.",
+      "emailCount": 0,
+      "sources": [],
+      "createdAt": "2026-03-28T07:11:54.107Z"
+    }
+  },
+  {
+    "id": "3a3c29b0-e5cd-4478-933b-e53315ae644e",
+    "agentId": "newsletter-summarizer",
+    "status": "completed",
+    "startedAt": "2026-03-27T07:00:04.327Z",
+    "completedAt": "2026-03-27T07:00:58.068Z",
+    "summary": {
+      "id": "a175b1cf-bca8-4d14-8f01-5a65f17081fc",
+      "agentId": "newsletter-summarizer",
+      "date": "2026-03-27",
+      "title": "AI Newsletter Digest - March 27, 2026",
+      "content": "# AI Newsletter Digest - March 27, 2026\n\n## AI Development Infrastructure & Tools\n\n**CLI Revolution: Major Companies Launch Command-Line Tools for AI Agents**\n- **Headline**: Stripe, Ramp, and multiple other major companies launched CLI tools designed specifically for AI agents to provision services and automate tasks.\n- **Summary**: Stripe launched Projects.dev, allowing agents to run commands like \"stripe projects add posthog/analytics\" to automatically create accounts and set up services. This trend is spreading rapidly across the tech industry.\n- **Key Points**:\n  • Stripe's CLI can automatically provision third-party services like PostHog with full account setup\n  • Other companies launching CLIs today include Ramp, Sendblue (iMessage), ElevenLabs, and Visa\n  • Trend was inspired by difficulty agents face setting up backend services\n  • CLIs are seen as more practical than MCPs (Model Context Protocols) for agent automation\n  • Movement started with Cloudflare's Code Mode in September 2025\n\n**Cursor Introduces Self-Hosted AI Agents**\n- **Headline**: Cursor now allows companies to run AI coding agents on their own infrastructure instead of Cursor's cloud.\n- **Summary**: This addresses security concerns for companies that cannot move code or secrets outside their networks. Agents still use Cursor's planning but execute tasks on the company's own machines.\n- **Key Points**:\n  • Code, secrets, and build artifacts never leave your infrastructure\n  • Uses only outbound HTTPS connections, no inbound ports needed\n  • Supports parallel agents with isolated environments\n  • Includes Kubernetes support and autoscaling\n  • Each agent acts like a remote developer with full repo access\n\n## AI Model Releases & Performance\n\n**Google Releases Multiple New AI Models**\n- **Headline**: Google launched Gemini 3.1 Flash Live for real-time voice interactions and Lyria 3 Pro for structured music generation.\n- **Summary**: Gemini 3.1 Flash Live focuses on lower latency voice interactions with 128k context and 70 languages. Lyria 3 Pro can generate full 3-minute songs with structured sections like verses and choruses.\n- **Key Points**:\n  • Gemini 3.1 Flash Live: 95.9% performance with 2.98s response time vs 70.5% with 0.96s\n  • Supports 70 languages with watermarking via SynthID\n  • Lyria 3 Pro generates up to 3-minute tracks with explicit song structure\n  • Can define intros, verses, choruses, and bridges in prompts\n  • Available through Gemini API and Google AI Studio\n\n**OpenAI Releases Smaller GPT-5.4 Variants**\n- **Headline**: OpenAI launched GPT-5.4 mini and nano versions with 400k context and multimodal capabilities.\n- **Summary**: These smaller models aim to be more cost-effective while maintaining capabilities. However, they suffer from excessive verbosity and higher hallucination rates.\n- **Key Points**:\n  • Both support 400k context and same reasoning modes as full GPT-5.4\n  • GPT-5.4 nano performs better than Claude Haiku 4.5 on some tasks\n  • More cost-effective on per-task basis\n  • Major downsides: highly verbose output and high hallucination rates\n  • Developer complaints about excessive verbosity in practice\n\n## AI Safety & Business Decisions\n\n**OpenAI Pauses Adult Content and Video Projects**\n- **Headline**: OpenAI indefinitely paused its planned \"adult mode\" chatbot and discontinued Sora video generation to focus on core products.\n- **Summary**: The company wants more time to research harmful effects of sexually explicit AI conversations and emotional attachments they may create. Investors weren't enthusiastic about the adult content project.\n- **Key Points**:\n  • \"Adult mode\" ChatGPT paused indefinitely due to safety concerns\n  • Research needed on emotional attachments and harmful effects\n  • Sora AI video app discontinued to redirect computing resources\n  • Focus shifting to higher-priority core productivity products\n  • Second major product pullback this week\n\n## AI Research & Benchmarks\n\n**New ARC-AGI-3 Benchmark Shows AI Learning Limitations**\n- **Headline**: ARC Prize Foundation released ARC-AGI-3 benchmark where top AI models score under 1% while humans solve all tasks immediately.\n- **Summary**: This interactive benchmark tests how agents learn rules and goals through exploration in unfamiliar environments, revealing major gaps in AI learning abilities compared to human reasoning.\n- **Key Points**:\n  • 135 new environments designed to prevent memorization\n  • Tests real-time learning through trial and error, not recall\n  • Humans solve all tasks immediately, AI systems score under 1%\n  • Models fail to revise assumptions when contradicted by evidence\n  • Shows limitations in long-horizon planning and outcome prediction\n\n## Technology Infrastructure\n\n**Quantum Computing Threat Timeline Accelerates**\n- **Headline**: Google warns quantum computers could break current encryption by 2029 and publishes plan to transition all infrastructure to quantum-resistant cryptography.\n- **Summary**: The company highlights \"harvest now, decrypt later\" attacks as an active threat where attackers steal encrypted data today to decrypt it once quantum computers become powerful enough.\n- **Key Points**:\n  • Google plans full quantum-resistant infrastructure by 2029\n  • 6.8 million Bitcoin in vulnerable addresses potentially at risk\n  • \"Harvest now, decrypt later\" attacks already happening\n  • Bitcoin developers working on quantum-resistant upgrades (BIP 360)\n  • Timeline may be sooner than previously expected\n\n**Memory Optimization Breakthrough**\n- **Headline**: Google's TurboQuant algorithm reduces AI memory usage by 6x without performance loss.\n- **Summary**: This compression technique targets the KV cache (working memory) that AI models use during inference, potentially solving memory bottlenecks in AI systems.\n- **Key Points**:\n  • Combines PolarQuant and QJL compression techniques\n  • 6x reduction in working memory with no accuracy loss\n  • Only targets inference memory, not training requirements\n  • Still in lab stage, findings to be presented at ICLR 2026\n  • Would help with RAM shortages if deployed successfully",
+      "emailCount": 3,
+      "sources": [
+        {
+          "sender": "AINews <swyx+ainews@substack.com>",
+          "subject": "[AINews] Everything is CLI"
+        },
+        {
+          "sender": "Techpresso <techpresso@dupple.com>",
+          "subject": "☕️ OpenAI pauses erotic chatbot plans indefinitely"
+        },
+        {
+          "sender": "AlphaSignal <news@alphasignal.ai>",
+          "subject": "🧠 ARC Prize AGI-3 benchmark: Top AI models score under 1%"
+        }
+      ],
+      "createdAt": "2026-03-27T07:00:58.067Z"
+    }
+  },
+  {
+    "id": "a6cbf11c-821c-4c2e-84a8-f6467d42f9b0",
+    "agentId": "newsletter-summarizer",
+    "status": "completed",
+    "startedAt": "2026-03-26T08:59:00.308Z",
+    "completedAt": "2026-03-26T08:59:00.402Z",
+    "summary": {
+      "id": "fad66afd-1183-455c-a30d-cf901267aa4d",
+      "agentId": "newsletter-summarizer",
+      "date": "2026-03-26",
+      "title": "No newsletters found",
+      "content": "No newsletter emails were found in the configured time window.",
+      "emailCount": 0,
+      "sources": [],
+      "createdAt": "2026-03-26T08:59:00.401Z"
+    }
+  },
+  {
+    "id": "bef4ee98-aa87-48d2-b6bc-7ae33da6eea6",
+    "agentId": "newsletter-summarizer",
+    "status": "completed",
+    "startedAt": "2026-03-26T08:58:37.732Z",
+    "completedAt": "2026-03-26T08:58:37.819Z",
+    "summary": {
+      "id": "97e014ca-276b-4fb4-8db9-4697738e8bc4",
+      "agentId": "newsletter-summarizer",
+      "date": "2026-03-26",
+      "title": "No newsletters found",
+      "content": "No newsletter emails were found in the configured time window.",
+      "emailCount": 0,
+      "sources": [],
+      "createdAt": "2026-03-26T08:58:37.818Z"
+    }
+  },
+  {
+    "id": "d5a94a6a-746c-40cc-a34f-53310829243a",
+    "agentId": "newsletter-summarizer",
+    "status": "completed",
+    "startedAt": "2026-03-26T08:57:47.376Z",
+    "completedAt": "2026-03-26T08:58:44.452Z",
+    "summary": {
+      "id": "50b4efb4-5967-464e-a9f3-addc8a975855",
+      "agentId": "newsletter-summarizer",
+      "date": "2026-03-26",
+      "title": "AI Newsletter Digest - March 26, 2026",
+      "content": "# AI Newsletter Digest - March 26, 2026\n\n## **LLM & AI Development**\n\n### **Claude Code Gets Major Auto Mode Update**\n- **Headline**: Anthropic launches auto mode for Claude Code that reduces manual approvals while maintaining safety checks\n- **Summary**: Claude Code now includes an \"auto mode\" that automatically decides whether to run file operations and shell commands without constant user approval. The system uses a classifier to filter risky actions while allowing safe operations to proceed automatically.\n- **Key Points**:\n  • Uses classifier-based filtering to detect destructive or sensitive operations\n  • Blocks risky actions and forces the model to try different approaches\n  • Only prompts users after repeated blocked attempts\n  • Available in Team plan as research preview, expanding to other plans soon\n  • Enables longer coding tasks without constant interruptions\n  • Should be used in isolated environments due to incomplete risk coverage\n\n### **Google's TurboQuant Speeds Up LLM Processing**\n- **Headline**: Google releases TurboQuant compression technique that speeds up LLM attention by up to 8x\n- **Summary**: Google Research developed TurboQuant to address the KV cache bottleneck (memory storage system) that slows down LLMs as context grows. The technique combines two methods to compress data efficiently while maintaining accuracy.\n- **Key Points**:\n  • Reduces KV cache size by 6x or more while keeping accuracy unchanged\n  • Speeds up attention computation by up to 8x on H100 GPUs\n  • Uses PolarQuant (converts vectors to magnitude/direction) and QJL (stores error corrections)\n  • Runs at 3-4 bits per value instead of 16-bit or 32-bit formats\n  • Requires no retraining or fine-tuning on existing models\n  • Works with models like Gemma and Mistral\n  • Improves performance for long conversations and agent workflows\n\n## **Major Product Launches & Shutdowns**\n\n### **OpenAI Shuts Down Sora Video App**\n- **Headline**: OpenAI discontinues its TikTok-like Sora social video app after just 6 months of operation\n- **Summary**: OpenAI announced it's shutting down the Sora app without providing specific reasons or timeline. The app saw declining downloads and limited revenue during its brief lifespan.\n- **Key Points**:\n  • App peaked at 3.3 million downloads in November, dropped to 1.1 million by February\n  • Generated only $2.1 million from in-app purchases during entire lifetime\n  • Shutdown cancels $1 billion Disney licensing deal for Disney/Marvel/Pixar/Star Wars content\n  • No money reportedly changed hands in the Disney deal\n  • No official reason given for the shutdown\n\n### **Apple Tests Standalone Siri App**\n- **Headline**: Apple internally testing dedicated Siri app and system-wide AI overhaul for iOS 27 and macOS 27\n- **Summary**: Apple is developing a standalone Siri application alongside major AI improvements planned for this year's operating system updates. The new approach will replace current Spotlight search with unified Siri interface.\n- **Key Points**:\n  • Shows past conversations in list or grid format\n  • Allows users to pin favorite chats and search old interactions\n  • Supports file uploads for analysis and text/voice switching\n  • Replaces Spotlight search with unified Siri interface in Dynamic Island\n  • Offers web summaries, images, bullet points, and deeper personal data access\n  • Part of larger AI overhaul for iOS 27 and macOS 27\n\n## **Hardware & Corporate Moves**\n\n### **Arm Releases First In-House Chip**\n- **Headline**: Arm Holdings launches its first self-manufactured processor after 36 years of only licensing designs\n- **Summary**: Arm has developed the Arm AGI CPU specifically for AI data center inference, with Meta as the debut customer. This marks a historic shift from exclusively licensing designs to competing alongside partners.\n- **Key Points**:\n  • Built using Arm Neoverse family of CPU IP cores through Meta partnership\n  • Production-ready processor designed for AI data center inference\n  • Development started in 2023, chips ready to order now\n  • Represents major strategy shift from licensing-only to direct competition\n  • Meta serves as the debut customer for the new processor\n\n### **Amazon Acquires Fauna Robotics**\n- **Headline**: Amazon buys humanoid robot startup Fauna Robotics, which makes \"approachable\" consumer and business robots\n- **Summary**: Amazon acquired the 2024-founded startup that creates user-friendly humanoid robots. Fauna will continue operating under its own name within Amazon.\n- **Key Points**:\n  • Founded in 2024 by former Meta and Google engineers\n  • Makes Sprout robot: $50,000, 3.5 feet tall, 50 lbs, bipedal design\n  • About 50 employees joining Amazon in New York City\n  • Financial terms not disclosed\n  • Will continue operating as Fauna Robotics under Amazon\n\n## **Design & Development Tools**\n\n### **Figma Launches AI Agent Design Tool**\n- **Headline**: Figma introduces use_figma tool allowing AI agents to create and edit designs directly in Figma files\n- **Summary**: The new tool enables AI agents to work within real Figma design systems rather than generating static outputs. It connects through Model Context Protocol (MCP) to various AI clients.\n- **Key Points**:\n  • Works with MCP clients like Claude Code, Codex, Cursor, and Copilot CLI\n  • Operates on real Figma files, not exported or generated mockups\n  • generate_figma_design converts HTML into editable Figma layers\n  • Supports multi-agent workflows across design and implementation\n  • Uses Skills (markdown instructions) to define design rules and conventions\n  • Currently in open beta\n\n## **Legal & Regulatory**\n\n### **Meta Faces $375 Million Child Safety Penalty**\n- **Headline**: New Mexico jury orders Meta to pay $375 million for endangering children on Instagram and Facebook\n- **Summary**: The case was framed as a products-liability claim arguing the platforms were defective, which bypasses Section 230 protections. This gives state attorneys general a tested legal strategy.\n- **Key Points**:\n  • Meta found liable on every count in the child safety case\n  • Legal strategy sidesteps Section 230 by treating platforms as defective products\n  • Provides 40+ state attorneys general with tested courtroom playbook\n  • Bench trial in May will determine required changes, not additional payments\n  • May require age verification, predator removal, and encrypted messaging modifications\n  • Case spans multiple states\n\n### **Trump Forms Tech Advisory Council**\n- **Headline**: President Trump appoints tech CEOs from Meta, NVIDIA, Dell, Oracle, AMD and others to White House science council\n- **Summary**: The President's Council of Advisors on Science and Technology now includes major tech leaders, with room to expand from 13 to 24 members.\n- **Key Points**:\n  • Includes Google co-founder Sergey Brin and VC Marc Andreessen\n  • Co-chaired by David Sacks (AI/crypto czar) and Michael Kratsios (science advisor)\n  • Many members have direct financial ties to Trump through donations and business deals\n  • Oracle backed TikTok takeover, others funded inauguration and White House ballroom\n  • Council can grow to 24 members total",
+      "emailCount": 3,
+      "sources": [
+        {
+          "sender": "AINews <swyx+ainews@substack.com>",
+          "subject": "[AINews] The Biggest Claude Launch of All Time"
+        },
+        {
+          "sender": "Techpresso <techpresso@dupple.com>",
+          "subject": "☕️ Arm releases first in-house chip"
+        },
+        {
+          "sender": "AlphaSignal <news@alphasignal.ai>",
+          "subject": "🤖 Anthropic Claude Code Auto Mode + Figma AI Agent Design Tool"
+        }
+      ],
+      "createdAt": "2026-03-26T08:58:44.451Z"
+    }
+  },
+  {
+    "id": "b1eea4f8-ea46-4050-b279-ebe84bf96b99",
+    "agentId": "newsletter-summarizer",
+    "status": "completed",
+    "startedAt": "2026-03-26T07:00:01.823Z",
+    "completedAt": "2026-03-26T07:00:01.907Z",
+    "summary": {
+      "id": "601616a4-008b-49dd-852e-a30d29460539",
+      "agentId": "newsletter-summarizer",
+      "date": "2026-03-26",
+      "title": "No newsletters found",
+      "content": "No newsletter emails were found in the configured time window.",
+      "emailCount": 0,
+      "sources": [],
+      "createdAt": "2026-03-26T07:00:01.906Z"
+    }
+  },
+  {
+    "id": "b092e558-6d0b-4259-916b-ca7ad3a50b0e",
+    "agentId": "newsletter-summarizer",
+    "status": "completed",
+    "startedAt": "2026-03-25T07:53:06.562Z",
+    "completedAt": "2026-03-25T07:54:12.176Z",
+    "summary": {
+      "id": "e2e2de78-7254-43ad-8a52-069805932551",
+      "agentId": "newsletter-summarizer",
+      "date": "2026-03-25",
+      "title": "AI News Digest - March 25, 2026",
+      "content": "# AI News Digest - March 25, 2026\n\n## App Distribution & Platform Wars\n\n### **Apple's War on Slop: Traditional App Stores Under Threat**\n- **Headline**: Apple's App Store supremacy faces existential challenge as AI-generated \"vibe code\" apps flood the market\n- **Summary**: The ability for anyone to create apps using AI tools is breaking down traditional app distribution models. Apple is blocking some AI-generated apps on policy grounds, but the fundamental paradigm shift toward open web distribution appears unstoppable.\n- **Key Points**:\n  - High school dropouts can now potentially build $100M+ apps using AI vibecode tools\n  - Traditional app store review processes are becoming obsolete\n  - Apple is actively blocking some Replit and vibecode apps citing policy violations\n  - The \"War on Slop\" (low-quality AI-generated content) is a defining theme for 2026\n  - This threatens decades of Apple App Store dominance\n\n### **Apple Business Platform Launch**\n- **Headline**: Apple launches unified business platform replacing three separate services\n- **Summary**: Apple Business combines device management, productivity tools, and customer outreach into one free platform, launching April 14 across 200+ countries.\n- **Key Points**:\n  - Replaces Apple Business Essentials, Business Manager, and Business Connect\n  - Includes built-in device management, \"Blueprints\" for deployment, and productivity tools\n  - Features cryptographic separation between personal and work data\n  - Existing customers will automatically migrate with no more monthly fees\n  - Available free in over 200 countries starting April 14\n\n## AI Agent Capabilities\n\n### **Claude Gains Computer Control**\n- **Headline**: Anthropic's Claude can now directly control Mac computers through mouse and keyboard automation\n- **Summary**: Claude Pro and Max subscribers can now let the AI assistant take control of their Mac to complete tasks by clicking, typing, and scrolling through applications when APIs aren't available.\n- **Key Points**:\n  - Works by viewing screen, moving mouse, and typing like a human user\n  - Always asks permission before taking actions\n  - Connects to apps like Google Calendar and Slack when possible\n  - Falls back to manual computer control when no API exists\n  - Currently in research preview, only available on macOS\n  - Anthropic warns feature may contain errors and recommends avoiding sensitive apps\n  - Available in Claude Cowork and Claude Code Desktop applications\n\n### **Advanced Agent Infrastructure Development**\n- **Headline**: Agent platforms are maturing beyond simple demos toward production-ready systems with proper orchestration\n- **Summary**: Multiple developments show the agent ecosystem moving toward standardized environments, better harnesses, and more reliable deployment patterns.\n- **Key Points**:\n  - Anthropic published engineering details on multi-agent harnesses for complex tasks\n  - Figma launched MCP server allowing AI to directly edit design canvases\n  - Cursor extended this to generate components using team design systems\n  - Hermes Agent v0.4.0 added OpenAI-compatible API and self-improvement loops\n  - New focus on retries, rollbacks, structured logging, and recovery paths\n  - AI2 released open-source browser agent built on Molmo models\n  - GenReasoning launched platform with 330+ RL environments for agent testing\n\n## Security & Supply Chain Issues\n\n### **LiteLLM PyPI Compromise Creates Widespread Risk**\n- **Headline**: Major Python AI library compromised on PyPI, potentially exposing credentials across thousands of AI projects\n- **Summary**: LiteLLM version 1.82.8 was compromised with malicious code attempting to steal credentials and spread across environments, affecting most Python AI projects that use this popular routing library.\n- **Key Points**:\n  - Malicious payload targeted cloud credentials, SSH keys, CI/CD secrets, and wallets\n  - Package was later quarantined by PyPI after discovery\n  - Affects transitive dependencies including DSPy and many other AI projects\n  - In agentic systems, entire filesystem becomes attack surface since any file can enter context\n  - Renewed focus on minimal dependencies and stronger permission controls\n  - Highlights fragility of software supply chains in AI development\n\n### **US Router Import Ban**\n- **Headline**: FCC bans all new foreign-made consumer routers citing cybersecurity risks\n- **Summary**: The ban targets China-backed hacking groups but affects 60% of the router market, with limited evidence that US-made routers are more secure.\n- **Key Points**:\n  - Targets groups like Volt, Salt, and Flax Typhoon\n  - China controls ~60% of consumer router market\n  - FCC provided no evidence US routers are more secure\n  - Hacking groups have exploited both foreign and US-made routers (including Cisco)\n  - Salt and Flax Typhoon have targeted thousands of devices worldwide\n\n## Industry Moves & Organizational Changes\n\n### **Microsoft Continues AI Talent Acquisition**\n- **Headline**: Microsoft poaches key AI2 leadership including Ali Farhadi and Hanna Hajishirzi\n- **Summary**: Microsoft's superintelligence division continues concentrating AI talent, raising concerns about whether open research institutions can compete with hyperscalers.\n- **Key Points**:\n  - Multiple AI2 leaders including Ali Farhadi, Hanna Hajishirzi, and Ranjay Krishna joined Microsoft\n  - Part of Microsoft's broader strategy to build internal AI capabilities\n  - Raises questions about sustainability of open research institutions\n  - Microsoft preparing for potential split from OpenAI partnership\n\n### **OpenAI Strategic Realignment**\n- **Headline**: OpenAI allocates $1B+ to Foundation while winding down Sora and developing \"Spud\" model\n- **Summary**: OpenAI is narrowing product focus around core models while expanding AI safety and research initiatives.\n- **Key Points**:\n  - Foundation will spend at least $1B over next year on AI resilience\n  - Wojciech Zaremba moving to lead AI resilience efforts\n  - Winding down Sora's app/product footprint to free compute resources\n  - \"Spud\" codename for next major LLM in development\n  - Flagged Microsoft dependence as IPO risk in investor documents\n  - Facing 14+ lawsuits from ChatGPT users and 3 from Elon Musk/xAI\n\n### **Epic Games Major Layoffs**\n- **Headline**: Epic Games cuts 1,000+ jobs as Fortnite engagement declines\n- **Summary**: Fortnite's declining popularity in 2025 left Epic spending significantly more than earning, forcing major cost-cutting measures.\n- **Key Points**:\n  - Over 1,000 jobs cut plus $500M+ in other cost savings\n  - Fortnite engagement downturn started in 2025\n  - Laid-off workers get 4 months severance (more for longer tenure)\n  - US employees keep healthcare for 6 months\n  - Company was spending significantly more than earning\n\n## Technology Advances\n\n### **AI Model & Infrastructure Improvements**\n- **Headline**: Multiple breakthrough optimizations deliver major performance gains for AI inference and training\n- **Summary**: New developments in model optimization, memory compression, and inference speed are making AI systems more efficient and accessible.\n- **Key Points**:\n  - vLLM's Model Runner V2 delivers up to 2.5x throughput gains for multimodal workloads\n  - Hugging Face's continuous batching reaches 95% of vLLM performance\n  - Google's TurboQuant achieves 6x memory reduction and 8x speedup with no accuracy loss\n  - hf-mount allows mounting Hub datasets as local filesystem for agent operations\n  - NVIDIA's Nemotron-Cascade 2 enables scalable post-training for reasoning models\n  - Optimization gains increasingly coming from systems layers rather than larger models\n\n### **Unified Multimodal Models**\n- **Headline**: Luma's Uni-1 combines reasoning and image generation in single pipeline\n- **Summary**: Unlike traditional models that generate pixels first then reason, Uni-1 plans composition and generates simultaneously for better control and consistency.\n- **Key Points**:\n  - Uses single transformer treating text and images as one sequence\n  - Plans composition before rendering, updates decisions during generation\n  - Performs reference-based edits with grounded controls\n  - Handles infographics, layouts, multi-step visual instructions\n  - Ranks first in human preference for style, editing, reference tasks\n  - Available via API at ~$0.09 per 2K resolution image\n\n## Research & Scientific AI\n\n### **Materials Science AI Challenges**\n- **Headline**: Materials science lacks an \"AlphaFold moment\" due to fundamental differences from biology\n- **Summary**: Unlike biology's limited amino acid space, materials science involves every element with unique interactions and little transferability, making unified breakthroughs much harder.\n- **Key Points**:\n  - Biology has only 20 amino acids vs. entire periodic table for materials\n  - Materials datasets are \"woefully lacking\" compared to biological data\n  - Ground truth data often just noisy approximations (DFT datasets)\n  - \"Really good datasets for really boring chemistry\" - accurate data lacks novelty\n  - Each element represents new chemistry with little transferability\n  - Still significant potential in using LLMs to extract data from scientific literature\n\n### **Simplified JEPA Training Breakthrough**\n- **Headline**: Yann LeCun's team achieves stable JEPA training from pixels using simple two-term loss\n- **Summary**: LeWorldModel eliminates complex training tricks needed for previous JEPA systems while achieving 48x speedup in planning tasks.\n- **Key Points**:\n  - 15M parameter model trains end-to-end from raw pixels\n  - Replaces complex EMA and stop-gradient techniques with simple loss\n  - Achieves stable training without representation collapse\n  - Runs full planning in under one second on single GPU\n  - 48x speedup over prior models on control tasks\n  - Code and pretrained checkpoints available",
+      "emailCount": 4,
+      "sources": [
+        {
+          "sender": "AINews <swyx+ainews@substack.com>",
+          "subject": "[AINews] Apple's War on Slop"
+        },
+        {
+          "sender": "Techpresso <techpresso@dupple.com>",
+          "subject": "☕️ Apple announces Apple Business"
+        },
+        {
+          "sender": "AlphaSignal <news@alphasignal.ai>",
+          "subject": "Claude gains direct mouse/keyboard control for legacy app automation"
+        },
+        {
+          "sender": "Latent.Space <swyx@substack.com>",
+          "subject": "🔬Why There Is No \"AlphaFold for Materials\" — AI for Materials Discovery with Heather Kulik"
+        }
+      ],
+      "createdAt": "2026-03-25T07:54:12.175Z"
+    }
+  },
+  {
+    "id": "b5de5f29-4f6a-4932-a43e-4d12c477d599",
+    "agentId": "newsletter-summarizer",
+    "status": "completed",
+    "startedAt": "2026-03-24T08:17:21.691Z",
+    "completedAt": "2026-03-24T08:18:05.932Z",
+    "summary": {
+      "id": "df4084da-3a03-41a5-8d92-6be3021f3aae",
+      "agentId": "newsletter-summarizer",
+      "date": "2026-03-24",
+      "title": "AI Newsletter Digest - March 24, 2026",
+      "content": "# AI Newsletter Digest - March 24, 2026\n\n## **Major Acquisitions & Partnerships**\n\n**Headline**: Meta acquires Dreamer in rapid \"execuhire\" deal for Superintelligence Labs\n\n**Summary**: Meta's Superintelligence Labs has hired the team behind Dreamer, an AI consumer product company, just 11 days after they were featured on a podcast. This follows Meta's $2B Manus acquisition in December, showing their aggressive strategy to build consumer AI capabilities.\n\n**Key Points**:\n- Deal completed in just days, similar to the rapid 10-day Manus acquisition\n- Dreamer had impressive tech and polish but faced the typical consumer AI distribution challenges\n- Combined teams create \"one of the most formidable consumer agent labs on Earth\"\n- Shows Meta's clear talent acquisition strategy under Nat Friedman's leadership\n- \"Execuhire\" refers to licensing plus hiring deals that aren't full acquisitions\n\n---\n\n## **AI Agent Infrastructure & Development**\n\n**Headline**: ByteDance releases DeerFlow 2.0, an open-source multi-agent framework with memory isolation\n\n**Summary**: DeerFlow 2.0 lets you run complex workflows through coordinated AI agents instead of overloading one model. Each agent runs in its own isolated environment with separate memory, tools, and execution space.\n\n**Key Points**:\n- Lead agent decomposes tasks and assigns work to specialized sub-agents\n- Docker sandbox provides filesystem, bash execution, and code runtime\n- Supports GPT, Claude, Gemini, DeepSeek through OpenAI-compatible APIs\n- Skills load on demand, defined as simple Markdown workflows\n- Solves shared-context issues that plague multi-agent systems\n- Built-in skills for research, reports, slides, and web generation\n\n**Headline**: Anthropic expands Claude Computer Use to desktop with macOS research preview\n\n**Summary**: Claude can now control mouse, keyboard, and screen to operate any macOS app through Claude Cowork and Claude Code. This expands agent capabilities beyond just APIs and browser sandboxes to full desktop control.\n\n**Key Points**:\n- Enables \"do anything on your computer\" workflows\n- Strong community reaction about not needing laptops for many tasks\n- Shows Anthropic's strategy to own the full agent interaction loop\n- Part of broader trend toward long-running, parallel, tool-rich workflows\n- Addresses operational bottlenecks beyond just model intelligence\n\n**Headline**: OpenAI improves API workflow speed with reusable container infrastructure\n\n**Summary**: OpenAI's Responses API now uses container pooling, which reuses execution environments across requests instead of starting fresh each time. This cuts setup time by about 10x for agent workflows.\n\n**Key Points**:\n- Containers stay active briefly, then expire after inactivity\n- Supports shell, code interpreter, and skills in same running environment\n- Files persist so later steps can access earlier outputs\n- Runs on Debian-based system with Python, Node.js, Java preinstalled\n- Reduces repeated initialization that slowed down multi-step agent tasks\n\n---\n\n## **Corporate AI Strategy & Products**\n\n**Headline**: Zuckerberg builds personal AI agent to help run Meta operations\n\n**Summary**: Mark Zuckerberg is developing a personal AI agent to speed up information retrieval and reduce the need to go through multiple layers of people or teams when running Meta.\n\n**Key Points**:\n- Meta employees already use MyClaw for accessing work files and chat logs\n- \"Second Brain\" tool built on Claude acts as an \"AI chief of staff\"\n- Part of Meta's strategy to compete with AI-native startups that have smaller teams\n- Separate reports suggest Meta may be planning layoffs affecting up to 20% of workforce\n- Shows how AI is being used at the executive level for operational efficiency\n\n**Headline**: Sakana AI launches culturally localized Japanese chat service with Namazu model\n\n**Summary**: Sakana AI released Sakana Chat for Japanese users, powered by their new Namazu alpha model family. The models are designed to reduce upstream bias and better reflect Japanese context and values.\n\n**Key Points**:\n- Demonstrates culturally localized post-training for AI models\n- Includes both consumer product and technical research components\n- Used ensemble methods plus novelty search on 1.1M social posts\n- Collaboration with Yomiuri on information operations analysis\n- Shows trend toward region-specific AI model development\n\n---\n\n## **Hardware & Infrastructure**\n\n**Headline**: Elon Musk announces $25B Terafab chip factory for Tesla and SpaceX AI needs\n\n**Summary**: Musk unveiled plans for a massive chip manufacturing facility near Tesla's Austin headquarters, arguing that semiconductor companies aren't making chips fast enough for his companies' AI and robotics requirements.\n\n**Key Points**:\n- Joint project between Tesla and SpaceX with $25 billion estimated cost\n- Aims to produce chips supporting 100-200 gigawatts of computing power per year on Earth\n- Plans for terawatt-scale computing power in space applications\n- No specific timeline provided for construction or production\n- Reflects growing trend of tech companies building their own chip capabilities\n\n---\n\n## **Industry Business & Marketing**\n\n**Headline**: ChatGPT's first advertisers struggle to prove ad effectiveness with low performance metrics\n\n**Summary**: OpenAI's initial advertising partners including WPP, Omnicom, and Dentsu are having trouble demonstrating that ChatGPT ads work, with click-through rates running nearly 7x below Google search benchmarks.\n\n**Key Points**:\n- One brand achieved only 0.91% click-through rate vs Google's 6.4%\n- Another advertiser spent just 3% of $250,000 budget after several weeks\n- Reporting glitch in OpenAI's Ad Manager blocks advertisers from seeing their data\n- Makes it impossible to optimize campaigns or justify continued spending\n- Highlights challenges of monetizing conversational AI platforms through traditional advertising\n\n---\n\n## **Research & Technical Advances**\n\n**Headline**: Meta publishes V-JEPA 2.1 with improved video understanding through dense training\n\n**Summary**: The new version predicts every patch across video frames and multiple layers instead of only masked regions, leading to better scene understanding and a +20 point increase in robotic grasp success rates.\n\n**Key Points**:\n- Shifts from partial prediction to full-scene learning approach\n- Uses shared tokenization for images and videos in unified training pipeline\n- Applies supervision at multiple layers, not just final outputs\n- Learns representations without labels using prediction in latent space\n- Significant improvement in robotics applications and spatial understanding\n\n**Headline**: Apple proposes XSA attention mechanism that prevents self-focus in transformers\n\n**Summary**: Apple's XSA (eXcluding Self-Attention) is a simple two-line change to attention mechanisms that prevents tokens from focusing on themselves, improving performance across longer sequences.\n\n**Key Points**:\n- Addresses self-focus issues in transformer attention mechanisms  \n- Simple implementation requiring minimal code changes\n- Improves performance on longer sequence tasks\n- Part of broader research into optimizing transformer architectures\n- Could have wide applications across language and vision models",
+      "emailCount": 3,
+      "sources": [
+        {
+          "sender": "AINews <swyx+ainews@substack.com>",
+          "subject": "[AINews] Dreamer joins Meta Superintelligence Labs — 9 month retro of Personal Superintelligence"
+        },
+        {
+          "sender": "AlphaSignal <news@alphasignal.ai>",
+          "subject": "🔧 ByteDance DeerFlow 2.0: Multi-Agent Framework with Memory Isolation"
+        },
+        {
+          "sender": "Techpresso <techpresso@dupple.com>",
+          "subject": "☕️ Musk unveils $25B Terafab chip factory"
+        }
+      ],
+      "createdAt": "2026-03-24T08:18:04.800Z"
+    }
+  },
+  {
+    "id": "52d1fe20-d311-497d-9dc0-5c44c4bc9a96",
+    "agentId": "newsletter-summarizer",
+    "status": "completed",
+    "startedAt": "2026-03-24T08:13:28.066Z",
+    "completedAt": "2026-03-24T08:13:28.272Z",
+    "summary": {
+      "id": "0d00e778-dd2a-4d66-820a-b640d7015f31",
+      "agentId": "newsletter-summarizer",
+      "date": "2026-03-24",
+      "title": "No newsletters found",
+      "content": "No newsletter emails were found in the configured time window.",
+      "emailCount": 0,
+      "sources": [],
+      "createdAt": "2026-03-24T08:13:28.228Z"
+    }
+  },
+  {
+    "id": "7ffe08b7-841f-4f75-8531-8e1b814c7ecc",
+    "agentId": "newsletter-summarizer",
+    "status": "completed",
+    "startedAt": "2026-03-24T07:54:46.999Z",
+    "completedAt": "2026-03-24T07:54:47.130Z",
+    "summary": {
+      "id": "a80af449-7bdb-4099-893d-50ebb3143d14",
+      "agentId": "newsletter-summarizer",
+      "date": "2026-03-24",
+      "title": "No newsletters found",
+      "content": "No newsletter emails were found in the configured time window.",
+      "emailCount": 0,
+      "sources": [],
+      "createdAt": "2026-03-24T07:54:47.080Z"
+    }
+  },
+  {
+    "id": "2ad40677-de08-4e41-bdb5-78598ebbbfba",
+    "agentId": "newsletter-summarizer",
+    "status": "completed",
+    "startedAt": "2026-03-23T07:53:07.045Z",
+    "completedAt": "2026-03-23T07:53:07.198Z",
+    "summary": {
+      "id": "82a96888-240f-47ea-a269-3364362aaf6a",
+      "agentId": "newsletter-summarizer",
+      "date": "2026-03-23",
+      "title": "No newsletters found",
+      "content": "No newsletter emails were found in the configured time window.",
+      "emailCount": 0,
+      "sources": [],
+      "createdAt": "2026-03-23T07:53:07.138Z"
+    }
+  },
+  {
+    "id": "ca923766-761e-4c43-9cac-38d63349ab37",
+    "agentId": "newsletter-summarizer",
+    "status": "completed",
+    "startedAt": "2026-03-22T09:31:30.022Z",
+    "completedAt": "2026-03-22T09:31:50.721Z",
+    "summary": {
+      "id": "e089f680-0ed5-4434-843c-5388f209fb47",
+      "agentId": "newsletter-summarizer",
+      "date": "2026-03-22",
+      "title": "Tech News Digest - March 21, 2026",
+      "content": "# Tech News Digest - March 21, 2026\n\n## Legal & Regulatory\n\n**- Elon Musk misled Twitter shareholders, jury finds**\n**Summary**: A California jury ruled that Elon Musk intentionally misled Twitter shareholders in 2022 by questioning bot numbers while trying to exit his $44 billion purchase deal.\n**Key Points**:\n- Jury found Musk's public statements about Twitter bots were intentionally misleading\n- Investor Giuseppe Pampena sued on behalf of shareholders who lost money\n- Musk's tweets caused Twitter stock to drop 8% between May-October 2022\n- Potential damages could reach $2.6 billion (small compared to Musk's $660 billion net worth)\n- Case covers period when Musk was trying to back out of Twitter acquisition\n\n## Major Platform Changes\n\n**- Microsoft announces sweeping Windows changes**\n**Summary**: Microsoft is making major changes to Windows 11 after user complaints about AI clutter, poor performance, and missing features.\n**Key Points**:\n- Reducing unnecessary AI (Copilot) features in apps like Snipping Tool, Photos, Widgets, and Notepad\n- Adding movable taskbar positions (long-requested feature)\n- Fewer automatic restarts during updates\n- Faster File Explorer performance improvements\n- Better testing through Windows Insider Program before public releases\n- Changes respond to \"near-universal user feedback\" against forced AI features\n\n**- Google is replacing news headlines with AI ones**\n**Summary**: Google now uses AI to rewrite news headlines in search results, sometimes changing their original meaning.\n**Key Points**:\n- AI rewrites headlines that appear in Google search results\n- Previously did this in Google Discover news feed, now expanded to main search\n- Some AI-rewritten headlines poorly reflect the actual articles\n- Creates misleading results for users who trust Google's presentation\n- Google has altered headlines for years, but AI makes changes more frequent\n- Challenges Google's image as a neutral search directory\n\n## Company Expansions\n\n**- OpenAI to nearly double workforce**\n**Summary**: OpenAI plans to grow from 4,500 to 8,000 employees by end of 2026, focusing on core product and sales teams.\n**Key Points**:\n- Nearly doubling workforce over two years\n- New hires will focus on product development, engineering, research, and sales\n- Recruiting \"technical ambassadors\" to help businesses use ChatGPT better\n- Expansion covers core teams that build and sell OpenAI's AI tools\n- Growth reflects increasing demand for AI products and services\n\n## Space & Defense\n\n**- SpaceX dominates US military and NASA contracts**\n**Summary**: SpaceX becomes the primary launch provider for US military and NASA after competitors face technical problems.\n**Key Points**:\n- Space Force switched to SpaceX after ULA (United Launch Alliance) missed GPS satellite schedule\n- ULA's Vulcan rocket grounded twice in two years due to solid rocket booster failures\n- Same type of failure occurred on 2 out of 4 Vulcan flights\n- Space Force moved all four final GPS Block III launches from ULA to SpaceX starting 2024\n- ULA gets consolation classified military mission in 2028\n- Demonstrates SpaceX's growing reliability advantage over traditional aerospace companies\n\n## Other Notable Developments\n\n**- Pentagon to adopt Palantir AI for military use**\n**Summary**: The US military will implement Palantir's AI systems for defense operations.\n**Key Points**:\n- Major AI adoption by US Department of Defense\n- Expands Palantir's government contracts beyond data analytics\n- Shows military's increasing reliance on AI technology\n\n**- Pinterest CEO calls for social media age restrictions**\n**Summary**: Pinterest's CEO wants governments to ban social media access for users under 16.\n**Key Points**:\n- Calls for government regulation instead of company self-regulation\n- Would affect all major social media platforms\n- Addresses growing concerns about social media's impact on young people",
+      "emailCount": 1,
+      "sources": [
+        {
+          "sender": "Techpresso <techpresso@dupple.com>",
+          "subject": "☕️ Microsoft announces sweeping Windows changes"
+        }
+      ],
+      "createdAt": "2026-03-22T09:31:50.720Z"
+    }
+  },
+  {
+    "id": "408720fa-8831-438c-b048-732e1a35ab79",
+    "agentId": "newsletter-summarizer",
+    "status": "completed",
+    "startedAt": "2026-03-22T09:30:15.395Z",
+    "completedAt": "2026-03-22T09:30:34.818Z",
+    "summary": {
+      "id": "27d74919-98b4-406f-ac70-b2d7268bf1fc",
+      "agentId": "newsletter-summarizer",
+      "date": "2026-03-22",
+      "title": "AI Newsletter Digest - March 21, 2026",
+      "content": "# AI Newsletter Digest - March 21, 2026\n\n## Legal & Business Developments\n\n**Elon Musk Found Liable for Misleading Twitter Shareholders**\n- **Headline**: Jury finds Musk intentionally misled Twitter shareholders about bot numbers during 2022 acquisition\n- **Summary**: A California jury ruled that Elon Musk deliberately misled Twitter shareholders when he publicly questioned the platform's bot statistics while attempting to exit his $44 billion purchase deal.\n- **Key Points**:\n  • Musk's tweets caused Twitter stock to drop 8% between May-October 2022\n  • Investor Giuseppe Pampena sued on behalf of shareholders who sold at losses\n  • Potential damages could reach $2.6 billion\n  • Amount is relatively small compared to Musk's $660 billion net worth\n\n## Major Platform Updates\n\n**Microsoft Overhauls Windows 11 Following User Complaints**\n- **Headline**: Microsoft announces major Windows 11 changes to address AI clutter and performance issues\n- **Summary**: Microsoft is making sweeping changes to Windows 11 after years of user complaints about excessive AI features, poor performance, and missing customization options.\n- **Key Points**:\n  • Reducing AI Copilot integration in apps like Snipping Tool, Photos, and Notepad\n  • Adding movable taskbar positions (long-requested feature)\n  • Improving File Explorer performance\n  • Reducing automatic restart interruptions during updates\n  • Better testing through Windows Insider Program before public releases\n\n**Google Uses AI to Rewrite News Headlines**\n- **Headline**: Google now uses AI to alter news headlines in search results, sometimes changing their meaning\n- **Summary**: Google is applying AI to rewrite news headlines that appear in search results, expanding a practice previously used only in Google Discover news feeds.\n- **Key Points**:\n  • AI-rewritten headlines sometimes poorly reflect actual article content\n  • Google has been altering headlines for years, but AI involvement is increasing\n  • Creates potential for misleading users who trust search results\n  • Affects Google's perceived neutrality as a search directory\n  • AI Overviews can misrepresent source material\n\n## Company Expansion & Hiring\n\n**OpenAI Plans Major Workforce Expansion**\n- **Headline**: OpenAI to nearly double staff from 4,500 to 8,000 employees by end of 2026\n- **Summary**: According to Financial Times reporting, OpenAI is planning significant growth across core business functions to support its expanding operations.\n- **Key Points**:\n  • Most new hires will focus on product development, engineering, research, and sales\n  • Adding \"technical ambassadorship\" specialists to help businesses use AI tools better\n  • Growth reflects demand for ChatGPT and other OpenAI products\n  • Expansion timeline: completed by end of 2026\n\n## Space & Defense Technology\n\n**SpaceX Continues Market Dominance in Government Contracts**\n- **Headline**: SpaceX becomes primary launch provider for US military and NASA as competitors face technical issues\n- **Summary**: The Space Force again chose SpaceX over ULA (United Launch Alliance) after ULA's Vulcan rocket was grounded due to solid rocket booster failures.\n- **Key Points**:\n  • ULA's Vulcan rocket grounded twice in under two years for same booster issue\n  • Space Force moved all four final GPS Block III satellite launches to SpaceX starting 2024\n  • ULA receives classified military mission in 2028 as compensation\n  • SpaceX Falcon 9 rocket maintains strong reliability record\n  • Demonstrates SpaceX's growing monopolization of US space launches",
+      "emailCount": 1,
+      "sources": [
+        {
+          "sender": "Techpresso <techpresso@dupple.com>",
+          "subject": "☕️ Microsoft announces sweeping Windows changes"
+        }
+      ],
+      "createdAt": "2026-03-22T09:30:34.816Z"
+    }
+  },
+  {
+    "id": "14750418-88a6-4312-bd0f-5212757165f0",
+    "agentId": "newsletter-summarizer",
+    "status": "completed",
+    "startedAt": "2026-03-22T09:28:15.641Z",
+    "completedAt": "2026-03-22T09:28:38.252Z",
+    "summary": {
+      "id": "fbbcf199-7518-4a85-9760-d375a912385a",
+      "agentId": "newsletter-summarizer",
+      "date": "2026-03-22",
+      "title": "AI & Tech Digest - March 21, 2026",
+      "content": "# AI & Tech Digest - March 21, 2026\n\n## **Platform Updates & Business Changes**\n\n### Microsoft Announces Major Windows 11 Overhaul\n**Headline**: Microsoft responds to user complaints by promising to reduce AI clutter and improve Windows 11 performance.\n\n**Summary**: After years of user criticism about excessive AI features, poor performance, and missing customization options, Microsoft announced sweeping changes to Windows 11. The company will reduce unwanted Copilot integrations and restore key features users have been requesting.\n\n**Key Points**:\n- Removing unnecessary Copilot AI features from apps like Snipping Tool, Photos, Widgets, and Notepad\n- Adding movable taskbar positions (a long-requested feature)\n- Reducing automatic restarts during updates\n- Improving File Explorer performance\n- Better testing through Windows Insider Program before public releases\n- Changes come after widespread user feedback against forced AI integration\n\n### Google Replaces News Headlines with AI-Generated Versions\n**Headline**: Google's AI now rewrites news headlines in search results, sometimes changing their original meaning.\n\n**Summary**: Google has expanded its practice of using AI to rewrite headlines that appear in search results, moving beyond its previous use in Google Discover. This can make headlines misleading compared to the actual articles they link to.\n\n**Key Points**:\n- AI-rewritten headlines sometimes poorly reflect the actual article content\n- Google has been altering headlines for years, but AI makes this more widespread\n- Creates potential for misinformation when users trust Google's neutral appearance\n- Affects both search results and Google Discover news feed\n- Headlines can be misleading even when original articles are accurate\n\n## **Company Growth & Workforce**\n\n### OpenAI Plans to Nearly Double Staff by 2026\n**Headline**: OpenAI will grow from 4,500 to 8,000 employees by end of 2026, focusing on product development and sales.\n\n**Summary**: OpenAI is planning major workforce expansion across core business areas. Most new hires will work in product development, engineering, research, and sales teams.\n\n**Key Points**:\n- Workforce expansion from 4,500 to 8,000 employees (78% increase)\n- Focus areas: product development, engineering, research, and sales\n- New \"technical ambassadorship\" roles to help businesses use OpenAI tools better\n- Timeline: by end of 2026\n- Reflects company's growth and demand for AI tools like ChatGPT\n\n## **Legal & Financial News**\n\n### Elon Musk Found Guilty of Misleading Twitter Shareholders\n**Headline**: California jury finds Elon Musk intentionally misled Twitter shareholders about bot numbers during his 2022 acquisition attempt.\n\n**Summary**: A civil jury ruled that Musk's public questioning of Twitter's bot statistics was intentional deception while he tried to back out of the $44 billion purchase. Former shareholders who sold at a loss after his tweets caused stock to drop 8% may receive damages.\n\n**Key Points**:\n- Jury found Musk intentionally misled shareholders in 2022\n- His tweets questioning bot numbers caused 8% stock price decline (May-October 2022)\n- Lawsuit filed by investor Giuseppe Pampena on behalf of former Twitter shareholders\n- Potential damages could reach $2.6 billion\n- Relatively small amount compared to Musk's estimated $660 billion net worth\n- Related to Musk's attempt to exit the Twitter acquisition deal\n\n## **Space & Defense Technology**\n\n### SpaceX Dominates Government Launch Contracts\n**Headline**: SpaceX becomes the primary launch provider for US military and NASA as competitors face technical failures.\n\n**Summary**: The US Space Force shifted contracts to SpaceX after ULA's Vulcan rocket was grounded twice due to solid rocket booster failures. SpaceX now handles most critical government launches.\n\n**Key Points**:\n- ULA (United Launch Alliance) Vulcan rocket grounded twice in under two years\n- Same type of solid rocket booster failure occurred on 2 of 4 Vulcan flights\n- Space Force moved all 4 final GPS Block III satellite launches from ULA to SpaceX\n- Shifts started in 2024 due to ULA missing GPS satellite launch schedule\n- ULA given rights to classified military mission in 2028 as compensation\n- Demonstrates SpaceX's reliability advantage in government contracts",
+      "emailCount": 1,
+      "sources": [
+        {
+          "sender": "Techpresso <techpresso@dupple.com>",
+          "subject": "☕️ Microsoft announces sweeping Windows changes"
+        }
+      ],
+      "createdAt": "2026-03-22T09:28:38.250Z"
+    }
+  },
+  {
+    "id": "1fb3adf6-fc27-4538-9a53-b9ed94f865b7",
+    "agentId": "newsletter-summarizer",
+    "status": "completed",
+    "startedAt": "2026-03-22T09:16:16.219Z",
+    "completedAt": "2026-03-22T09:16:36.909Z",
+    "summary": {
+      "id": "aa699eb4-1408-4373-b075-3e9f7d63ef12",
+      "agentId": "newsletter-summarizer",
+      "date": "2026-03-22",
+      "title": "AI & Tech Digest - March 21, 2026",
+      "content": "# AI & Tech Digest - March 21, 2026\n\n## **Big Tech & Platform Updates**\n\n### Microsoft Overhauls Windows 11\n- **Headline**: Microsoft announces major Windows 11 changes to address user complaints about AI overload and performance issues\n- **Summary**: After years of user complaints, Microsoft is removing unnecessary AI features from apps and improving core Windows functionality. The changes respond to widespread criticism about too much AI integration and poor system performance.\n- **Key Points**:\n  • Reducing Copilot AI integration in Snipping Tool, Photos, Widgets, and Notepad\n  • Adding movable taskbar positions (a long-requested feature)\n  • Fewer automatic restarts during updates\n  • Faster File Explorer performance\n  • Better testing through Windows Insider Program before public releases\n  • Changes address \"near-universal user feedback\" against forced AI features\n\n### Google Uses AI to Rewrite News Headlines\n- **Headline**: Google now uses AI to alter news headlines in search results, sometimes changing their original meaning\n- **Summary**: Google has expanded its practice of rewriting headlines using AI, which can misrepresent the actual content of news articles. This affects how people understand news when searching.\n- **Key Points**:\n  • AI-rewritten headlines sometimes poorly reflect actual article content\n  • Google has been changing headlines for years, but AI makes it more widespread\n  • Affects both search results and Google Discover news feed\n  • Creates misleading results for users who trust Google's presentation\n  • Google maintains appearance of being neutral while actively altering content\n\n## **AI Company Developments**\n\n### OpenAI Expansion Plans\n- **Headline**: OpenAI plans to nearly double workforce to 8,000 employees by end of 2026\n- **Summary**: The AI company is rapidly scaling up hiring across key departments as it continues growing its business operations and product development.\n- **Key Points**:\n  • Growing from current 4,500 to 8,000 employees\n  • New hires focus on product development, engineering, research, and sales\n  • Adding \"technical ambassadorship\" roles to help businesses use AI tools better\n  • Expansion covers core teams building and selling ChatGPT and other products\n  • Reflects continued strong demand for AI services\n\n## **Legal & Financial News**\n\n### Elon Musk Twitter Lawsuit\n- **Headline**: Jury finds Elon Musk intentionally misled Twitter shareholders during 2022 acquisition attempt\n- **Summary**: A California jury ruled that Musk deliberately provided false information about Twitter's bot numbers while trying to exit his $44 billion purchase deal. This caused Twitter's stock price to drop 8%.\n- **Key Points**:\n  • Musk questioned Twitter's bot count publicly while backing out of acquisition\n  • Stock price fell 8% between May and October 2022\n  • Investor Giuseppe Pampena sued on behalf of affected shareholders\n  • Potential damages could reach $2.6 billion\n  • Relatively small amount compared to Musk's $660 billion estimated net worth\n\n## **Space & Defense**\n\n### SpaceX Military Dominance\n- **Headline**: SpaceX becomes dominant launch provider after competitor ULA faces repeated rocket failures\n- **Summary**: The U.S. Space Force continues choosing SpaceX over ULA (United Launch Alliance) for satellite launches because ULA's Vulcan rocket has reliability problems.\n- **Key Points**:\n  • ULA's Vulcan rocket grounded twice in under two years\n  • Same type of solid rocket booster failure on 2 of 4 flights\n  • Space Force moved all four GPS Block III satellite launches from ULA to SpaceX\n  • Launches started shifting to SpaceX in 2024\n  • ULA gets one classified military mission in 2028 as compensation\n  • SpaceX now handles most NASA and military launch contracts",
+      "emailCount": 1,
+      "sources": [
+        {
+          "sender": "Techpresso <techpresso@dupple.com>",
+          "subject": "☕️ Microsoft announces sweeping Windows changes"
+        }
+      ],
+      "createdAt": "2026-03-22T09:16:36.907Z"
+    }
+  },
+  {
+    "id": "904beab0-c835-4cc4-ac3b-8f2756b28301",
+    "agentId": "newsletter-summarizer",
+    "status": "failed",
+    "startedAt": "2026-03-22T09:09:02.208Z",
+    "completedAt": "2026-03-22T09:09:05.728Z",
+    "error": "401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"},\"request_id\":\"req_011CZHrdy51p2GqGnBk4Uj6p\"}"
+  },
+  {
+    "id": "ab315bcc-5156-4a28-ae1a-911ed4a3f247",
+    "agentId": "newsletter-summarizer",
+    "status": "failed",
+    "startedAt": "2026-03-22T09:06:20.260Z",
+    "completedAt": "2026-03-22T09:06:25.562Z",
+    "error": "401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"},\"request_id\":\"req_011CZHrSAFskxtQmXNQyBaLT\"}"
+  }
+]

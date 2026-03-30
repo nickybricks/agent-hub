@@ -1,0 +1,12 @@
+[
+  {
+    "id": "82a96888-240f-47ea-a269-3364362aaf6a",
+    "agentId": "newsletter-summarizer",
+    "date": "2026-03-23",
+    "title": "No newsletters found",
+    "content": "No newsletter emails were found in the configured time window.",
+    "emailCount": 0,
+    "sources": [],
+    "createdAt": "2026-03-23T07:53:07.138Z"
+  }
+]
