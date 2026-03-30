@@ -1,0 +1,217 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+/* ─── Light theme (default) ─── */
+:root {
+  --background: #faf7f5;
+  --background-secondary: #f3eeeb;
+  --foreground: #1a1a1a;
+  --card: #ffffff;
+  --card-hover: #f9f6f4;
+  --border: #e8e2dd;
+  --muted: #8c8480;
+  --accent: #e8613c;
+  --accent-hover: #d4532f;
+  --accent-soft: rgba(232, 97, 60, 0.1);
+  --success: #16a34a;
+  --success-soft: rgba(22, 163, 74, 0.1);
+  --warning: #d97706;
+  --warning-soft: rgba(217, 119, 6, 0.1);
+  --danger: #dc2626;
+  --danger-soft: rgba(220, 38, 38, 0.1);
+  --input-bg: #ffffff;
+  --shadow: rgba(0, 0, 0, 0.06);
+  --shadow-lg: rgba(0, 0, 0, 0.1);
+  --prose-body: #374151;
+  --prose-headings: #111827;
+  --prose-accent: #e8613c;
+}
+
+/* ─── Dark theme ─── */
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --background: #0f0f0f;
+    --background-secondary: #161616;
+    --foreground: #ededed;
+    --card: #1a1a1a;
+    --card-hover: #222222;
+    --border: #2a2a2a;
+    --muted: #888888;
+    --accent: #e8613c;
+    --accent-hover: #f0724e;
+    --accent-soft: rgba(232, 97, 60, 0.15);
+    --success: #22c55e;
+    --success-soft: rgba(34, 197, 94, 0.15);
+    --warning: #f59e0b;
+    --warning-soft: rgba(245, 158, 11, 0.15);
+    --danger: #ef4444;
+    --danger-soft: rgba(239, 68, 68, 0.15);
+    --input-bg: #111111;
+    --shadow: rgba(0, 0, 0, 0.3);
+    --shadow-lg: rgba(0, 0, 0, 0.5);
+    --prose-body: #d1d5db;
+    --prose-headings: #f3f4f6;
+    --prose-accent: #f0724e;
+  }
+}
+
+/* Manual dark override */
+:root.dark {
+  --background: #0f0f0f;
+  --background-secondary: #161616;
+  --foreground: #ededed;
+  --card: #1a1a1a;
+  --card-hover: #222222;
+  --border: #2a2a2a;
+  --muted: #888888;
+  --accent: #e8613c;
+  --accent-hover: #f0724e;
+  --accent-soft: rgba(232, 97, 60, 0.15);
+  --success: #22c55e;
+  --success-soft: rgba(34, 197, 94, 0.15);
+  --warning: #f59e0b;
+  --warning-soft: rgba(245, 158, 11, 0.15);
+  --danger: #ef4444;
+  --danger-soft: rgba(239, 68, 68, 0.15);
+  --input-bg: #111111;
+  --shadow: rgba(0, 0, 0, 0.3);
+  --shadow-lg: rgba(0, 0, 0, 0.5);
+  --prose-body: #d1d5db;
+  --prose-headings: #f3f4f6;
+  --prose-accent: #f0724e;
+}
+
+/* Manual light override */
+:root.light {
+  --background: #faf7f5;
+  --background-secondary: #f3eeeb;
+  --foreground: #1a1a1a;
+  --card: #ffffff;
+  --card-hover: #f9f6f4;
+  --border: #e8e2dd;
+  --muted: #8c8480;
+  --accent: #e8613c;
+  --accent-hover: #d4532f;
+  --accent-soft: rgba(232, 97, 60, 0.1);
+  --success: #16a34a;
+  --success-soft: rgba(22, 163, 74, 0.1);
+  --warning: #d97706;
+  --warning-soft: rgba(217, 119, 6, 0.1);
+  --danger: #dc2626;
+  --danger-soft: rgba(220, 38, 38, 0.1);
+  --input-bg: #ffffff;
+  --shadow: rgba(0, 0, 0, 0.06);
+  --shadow-lg: rgba(0, 0, 0, 0.1);
+  --prose-body: #374151;
+  --prose-headings: #111827;
+  --prose-accent: #e8613c;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-background-secondary: var(--background-secondary);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-hover: var(--card-hover);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-input-bg: var(--input-bg);
+  --color-shadow: var(--shadow);
+  --color-shadow-lg: var(--shadow-lg);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* ─── Card styling ─── */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 3px var(--shadow);
+  transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.card:hover {
+  box-shadow: 0 4px 12px var(--shadow);
+}
+
+/* ─── Markdown content styling ─── */
+.prose h1 { font-size: 1.5rem; font-weight: 700; margin: 1rem 0 0.5rem; color: var(--prose-headings); }
+.prose h2 { font-size: 1.25rem; font-weight: 600; margin: 1rem 0 0.5rem; color: var(--prose-accent); }
+.prose h3 { font-size: 1.1rem; font-weight: 600; margin: 0.75rem 0 0.25rem; color: var(--prose-headings); }
+.prose p { margin: 0.5rem 0; line-height: 1.7; color: var(--prose-body); }
+.prose ul { list-style: disc; padding-left: 1.5rem; margin: 0.5rem 0; }
+.prose ol { list-style: decimal; padding-left: 1.5rem; margin: 0.5rem 0; }
+.prose li { margin: 0.25rem 0; line-height: 1.6; color: var(--prose-body); }
+.prose strong { font-weight: 600; color: var(--prose-headings); }
+.prose hr { border-color: var(--border); margin: 1rem 0; }
+.prose a { color: var(--accent); text-decoration: underline; }
+
+/* ─── Scrollbar styling ─── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+/* ─── Theme toggle ─── */
+.theme-toggle {
+  position: relative;
+  width: 5rem;
+  height: 2rem;
+  border-radius: 9999px;
+  background: var(--background-secondary);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  padding: 2px;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.theme-toggle-track {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 100%;
+  padding: 0 6px;
+  font-size: 0.75rem;
+}
+
+.theme-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 9999px;
+  background: var(--accent);
+  transition: left 0.3s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+/* ─── Smooth transitions for theme changes ─── */
+*, *::before, *::after {
+  transition-property: background-color, border-color, color, box-shadow;
+  transition-duration: 0.2s;
+  transition-timing-function: ease;
+}
+
+/* Exempt animations & transforms from the theme transition */
+button, a, input, textarea, select {
+  transition-property: background-color, border-color, color, box-shadow, opacity, transform;
+  transition-duration: 0.2s;
+}
