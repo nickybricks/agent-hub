@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
+import { PROVIDER_MODELS, PROVIDER_DEFAULTS } from "@/lib/models";
 
 interface AgentConfig {
   id: string;
@@ -20,7 +21,8 @@ interface AgentConfig {
     deliverEmailTo: string;
     llm: {
       provider: string;
-      apiKey: string;
+      apiKey?: string;
+      baseUrl?: string;
       model: string;
       systemPrompt: string;
     };
@@ -492,93 +494,201 @@ export default function NewsletterAgentPage() {
               Choose which AI provider and model to use for summarization.
             </p>
             <div className="space-y-4">
+              {/* Provider buttons */}
               <div>
                 <label className="text-sm text-muted block mb-2">
                   Provider
                 </label>
-                <div className="flex gap-2">
-                  {(["anthropic", "openai"] as const).map((provider) => (
-                    <button
-                      key={provider}
-                      onClick={() =>
-                        setAgent({
-                          ...agent,
-                          settings: {
-                            ...agent.settings,
-                            llm: {
-                              ...agent.settings.llm,
-                              provider,
-                              model:
-                                provider === "anthropic"
-                                  ? "claude-sonnet-4-20250514"
-                                  : "gpt-4o",
+                <div className="flex flex-wrap gap-2">
+                  {(["anthropic", "openai", "google", "ollama"] as const).map(
+                    (provider) => (
+                      <button
+                        key={provider}
+                        onClick={() =>
+                          setAgent({
+                            ...agent,
+                            settings: {
+                              ...agent.settings,
+                              llm: {
+                                ...agent.settings.llm,
+                                provider,
+                                model: PROVIDER_DEFAULTS[provider],
+                                apiKey: "",
+                                baseUrl:
+                                  provider === "ollama"
+                                    ? "http://localhost:11434"
+                                    : undefined,
+                              },
                             },
-                          },
-                        })
-                      }
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        agent.settings.llm?.provider === provider
-                          ? "bg-accent text-white shadow-sm"
-                          : "bg-background-secondary border border-border text-muted hover:border-accent"
-                      }`}
-                    >
-                      {provider === "anthropic"
-                        ? "Anthropic (Claude)"
-                        : "OpenAI (GPT)"}
-                    </button>
-                  ))}
+                          })
+                        }
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          agent.settings.llm?.provider === provider
+                            ? "bg-accent text-white shadow-sm"
+                            : "bg-background-secondary border border-border text-muted hover:border-accent"
+                        }`}
+                      >
+                        {provider === "anthropic"
+                          ? "Anthropic"
+                          : provider === "openai"
+                            ? "OpenAI"
+                            : provider === "google"
+                              ? "Google"
+                              : "Ollama (Local)"}
+                      </button>
+                    )
+                  )}
                 </div>
               </div>
+
+              {/* Model dropdown */}
               <div>
                 <label className="text-sm text-muted block mb-1">Model</label>
-                <input
-                  type="text"
-                  value={agent.settings.llm?.model || ""}
-                  onChange={(e) =>
-                    setAgent({
-                      ...agent,
-                      settings: {
-                        ...agent.settings,
-                        llm: { ...agent.settings.llm, model: e.target.value },
-                      },
-                    })
-                  }
-                  placeholder={
-                    agent.settings.llm?.provider === "openai"
-                      ? "e.g. gpt-4o"
-                      : "e.g. claude-sonnet-4-20250514"
-                  }
-                  className="w-full bg-input-bg border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
-                />
+                {(() => {
+                  const provider =
+                    agent.settings.llm?.provider ?? "anthropic";
+                  const models = PROVIDER_MODELS[provider] ?? [];
+                  const currentModel = agent.settings.llm?.model ?? "";
+                  const isKnown = models.some(
+                    (m) => m.id === currentModel && m.id !== "custom"
+                  );
+                  const selectValue = isKnown ? currentModel : "custom";
+
+                  return (
+                    <>
+                      <select
+                        value={selectValue}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          if (value === "custom") {
+                            setAgent({
+                              ...agent,
+                              settings: {
+                                ...agent.settings,
+                                llm: {
+                                  ...agent.settings.llm,
+                                  model: "",
+                                },
+                              },
+                            });
+                            return;
+                          }
+                          setAgent({
+                            ...agent,
+                            settings: {
+                              ...agent.settings,
+                              llm: {
+                                ...agent.settings.llm,
+                                model: value,
+                              },
+                            },
+                          });
+                        }}
+                        className="w-full bg-input-bg border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
+                      >
+                        {models.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.label}
+                          </option>
+                        ))}
+                      </select>
+                      {selectValue === "custom" && (
+                        <input
+                          type="text"
+                          value={currentModel}
+                          onChange={(e) =>
+                            setAgent({
+                              ...agent,
+                              settings: {
+                                ...agent.settings,
+                                llm: {
+                                  ...agent.settings.llm,
+                                  model: e.target.value,
+                                },
+                              },
+                            })
+                          }
+                          placeholder="Enter model ID"
+                          className="mt-2 w-full bg-input-bg border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 font-mono"
+                        />
+                      )}
+                    </>
+                  );
+                })()}
               </div>
-              <div>
-                <label className="text-sm text-muted block mb-1">
-                  API Key
-                </label>
-                <input
-                  type="password"
-                  value={agent.settings.llm?.apiKey || ""}
-                  onChange={(e) =>
-                    setAgent({
-                      ...agent,
-                      settings: {
-                        ...agent.settings,
-                        llm: { ...agent.settings.llm, apiKey: e.target.value },
-                      },
-                    })
-                  }
-                  placeholder={
-                    agent.settings.llm?.provider === "openai"
-                      ? "sk-..."
-                      : "sk-ant-..."
-                  }
-                  className="w-full bg-input-bg border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 font-mono"
-                />
-                <p className="text-xs text-muted mt-1">
-                  Stored locally in config.json. Never sent anywhere except the
-                  selected provider.
-                </p>
-              </div>
+
+              {/* API Key (cloud providers) or Base URL (Ollama) */}
+              {agent.settings.llm?.provider === "ollama" ? (
+                <div>
+                  <label className="text-sm text-muted block mb-1">
+                    Base URL
+                  </label>
+                  <input
+                    type="text"
+                    value={
+                      agent.settings.llm?.baseUrl ?? "http://localhost:11434"
+                    }
+                    onChange={(e) =>
+                      setAgent({
+                        ...agent,
+                        settings: {
+                          ...agent.settings,
+                          llm: {
+                            ...agent.settings.llm,
+                            baseUrl: e.target.value,
+                          },
+                        },
+                      })
+                    }
+                    placeholder="http://localhost:11434"
+                    className="w-full bg-input-bg border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 font-mono"
+                  />
+                  <p className="text-xs text-muted mt-1">
+                    URL of your local Ollama server. Default:
+                    http://localhost:11434
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <label className="text-sm text-muted block mb-1">
+                    API Key
+                  </label>
+                  <input
+                    type="password"
+                    value={agent.settings.llm?.apiKey ?? ""}
+                    onChange={(e) =>
+                      setAgent({
+                        ...agent,
+                        settings: {
+                          ...agent.settings,
+                          llm: {
+                            ...agent.settings.llm,
+                            apiKey: e.target.value,
+                          },
+                        },
+                      })
+                    }
+                    placeholder={
+                      agent.settings.llm?.provider === "openai"
+                        ? "sk-…"
+                        : agent.settings.llm?.provider === "google"
+                          ? "AIza…"
+                          : "sk-ant-…"
+                    }
+                    className="w-full bg-input-bg border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 font-mono"
+                  />
+                  <p className="text-xs text-muted mt-1">
+                    Stored locally in config.json. Prefer setting an environment
+                    variable (
+                    {agent.settings.llm?.provider === "openai"
+                      ? "OPENAI_API_KEY"
+                      : agent.settings.llm?.provider === "google"
+                        ? "GOOGLE_API_KEY"
+                        : "ANTHROPIC_API_KEY"}
+                    ).
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 
