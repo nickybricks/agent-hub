@@ -21,8 +21,9 @@ export interface NewsletterAgent extends AgentConfig {
     deliverEmail: boolean;
     deliverEmailTo: string;
     llm: {
-      provider: "anthropic" | "openai";
-      apiKey: string;
+      provider: "anthropic" | "openai" | "google" | "ollama";
+      apiKey?: string;   // anthropic, openai, google — env var preferred
+      baseUrl?: string;  // ollama only; default: http://localhost:11434
       model: string;
       systemPrompt: string;
     };
@@ -36,6 +37,7 @@ export interface Email {
   senderEmail: string;
   date: string;
   body: string;
+  links: string[];
   isRead: boolean;
 }
 
