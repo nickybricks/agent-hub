@@ -1,53 +1,69 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { BaseChatModel } from "@langchain/core/language_models/chat_models";
+import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { ChatAnthropic } from "@langchain/anthropic";
+import { ChatOpenAI } from "@langchain/openai";
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { ChatOllama } from "@langchain/ollama";
 import { Email, Summary } from "../lib/types";
 import { randomUUID } from "crypto";
 
 interface LLMConfig {
-  provider: "anthropic" | "openai";
-  apiKey: string;
+  provider: "anthropic" | "openai" | "google" | "ollama";
+  apiKey?: string;
+  baseUrl?: string;
   model: string;
   systemPrompt: string;
 }
 
-async function callLLM(
-  config: LLMConfig,
-  userMessage: string
-): Promise<string> {
-  if (config.provider === "openai") {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${config.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: config.model,
-        max_tokens: 4096,
-        messages: [
-          { role: "system", content: config.systemPrompt },
-          { role: "user", content: userMessage },
-        ],
-      }),
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(
-        `OpenAI API error: ${response.status} ${JSON.stringify(data)}`
-      );
-    }
-    return data.choices[0].message.content;
+function resolveApiKey(config: LLMConfig): string {
+  if (config.provider === "ollama") return "";
+  const envKey =
+    config.provider === "openai"
+      ? process.env.OPENAI_API_KEY
+      : config.provider === "google"
+        ? process.env.GOOGLE_API_KEY
+        : process.env.ANTHROPIC_API_KEY;
+  const key = envKey || config.apiKey;
+  if (!key) {
+    const envVarName =
+      config.provider === "openai"
+        ? "OPENAI_API_KEY"
+        : config.provider === "google"
+          ? "GOOGLE_API_KEY"
+          : "ANTHROPIC_API_KEY";
+    throw new Error(
+      `No API key found for provider "${config.provider}". Set ${envVarName} in your environment or add apiKey to config.`
+    );
   }
+  return key;
+}
 
-  // Default: Anthropic
-  const client = new Anthropic({ apiKey: config.apiKey });
-  const message = await client.messages.create({
-    model: config.model,
-    max_tokens: 4096,
-    system: config.systemPrompt,
-    messages: [{ role: "user", content: userMessage }],
-  });
+function createLLM(config: LLMConfig): BaseChatModel {
+  const apiKey = resolveApiKey(config);
+  switch (config.provider) {
+    case "anthropic":
+      return new ChatAnthropic({ apiKey, model: config.model });
+    case "openai":
+      return new ChatOpenAI({ apiKey, model: config.model });
+    case "google":
+      return new ChatGoogleGenerativeAI({ apiKey, model: config.model });
+    case "ollama":
+      return new ChatOllama({
+        baseUrl: config.baseUrl ?? "http://localhost:11434",
+        model: config.model,
+      });
+  }
+}
 
-  return message.content[0].type === "text" ? message.content[0].text : "";
+function extractText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .filter((c): c is { type: "text"; text: string } => c?.type === "text")
+      .map((c) => c.text)
+      .join("");
+  }
+  return "";
 }
 
 export async function summarizeNewsletters(
@@ -78,19 +94,24 @@ export async function summarizeNewsletters(
   };
 
   const emailContents = emails
-    .map(
-      (e, i) =>
-        `--- Newsletter ${i + 1} ---\nFrom: ${e.sender}\nSubject: ${e.subject}\nDate: ${e.date}\n\n${e.body}\n`
-    )
+    .map((e, i) => {
+      const linksSection =
+        e.links.length > 0
+          ? `\nLinks found in this email:\n${e.links.map((l, j) => `  [${j + 1}] ${l}`).join("\n")}\n`
+          : "";
+      return `--- Newsletter ${i + 1} ---\nFrom: ${e.sender}\nSubject: ${e.subject}\nDate: ${e.date}\n\n${e.body}${linksSection}`;
+    })
     .join("\n\n");
 
-  const userMessage = `${styleInstructions[style]}
+  const userMessage = `${styleInstructions[style]}\n\nHere are today's newsletters:\n\n${emailContents}`;
 
-Here are today's newsletters:
+  const llm = createLLM(llmConfig);
+  const response = await llm.invoke([
+    new SystemMessage(llmConfig.systemPrompt),
+    new HumanMessage(userMessage),
+  ]);
 
-${emailContents}`;
-
-  const content = await callLLM(llmConfig, userMessage);
+  const content = extractText(response.content);
 
   const titleMatch = content.match(/^#\s+(.+)$/m);
   const title = titleMatch
