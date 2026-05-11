@@ -53,6 +53,7 @@ function renderDigestMarkdown(digest: Digest): string {
 
 interface LLMConfig {
   provider: "anthropic" | "openai" | "google" | "ollama";
+  apiKeys?: { anthropic?: string; openai?: string; google?: string };
   apiKey?: string;
   baseUrl?: string;
   model: string;
@@ -67,7 +68,8 @@ function resolveApiKey(config: LLMConfig): string {
       : config.provider === "google"
         ? process.env.GOOGLE_API_KEY
         : process.env.ANTHROPIC_API_KEY;
-  const key = envKey || config.apiKey;
+  const perProviderKey = config.apiKeys?.[config.provider as "anthropic" | "openai" | "google"];
+  const key = envKey || perProviderKey || config.apiKey;
   if (!key) {
     const envVarName =
       config.provider === "openai"
@@ -143,13 +145,17 @@ async function _summarizeNewsletters(
     .map((e, i) => {
       const linksSection =
         e.links.length > 0
-          ? `\nLinks found in this email:\n${e.links.map((l, j) => `  [${j + 1}] ${l}`).join("\n")}\n`
+          ? `\nLinked anchor texts (use these to inline links as [text](url) in the matching topic; never invent URLs):\n${e.links.map((l) => `  - "${l.text}" -> ${l.url}`).join("\n")}\n`
           : "";
-      return `--- Newsletter ${i + 1} ---\nFrom: ${e.sender}\nSubject: ${e.subject}\nDate: ${e.date}\n\n${e.body}${linksSection}`;
+      const imagesSection =
+        e.images.length > 0
+          ? `\nImages (the body contains [IMAGE_N] markers showing where each appeared; include them as ![alt](url) in the topic where they fit):\n${e.images.map((img) => `  - ${img.id}${img.alt ? ` (alt: "${img.alt}")` : ""} -> ${img.url}`).join("\n")}\n`
+          : "";
+      return `--- Newsletter ${i + 1} ---\nFrom: ${e.sender}\nSubject: ${e.subject}\nDate: ${e.date}\n\n${e.body}${linksSection}${imagesSection}`;
     })
     .join("\n\n");
 
-  const userMessage = `${styleInstructions[style]}\n\nHere are today's newsletters:\n\n${emailContents}`;
+  const userMessage = `${styleInstructions[style]}\n\nWhen the body text contains a phrase listed under "Linked anchor texts", inline it as a markdown link [text](url) inside the topic summary. When a [IMAGE_N] marker appears in body text and the image is relevant (not a logo/decoration), include it as ![alt](url) in the topic summary at a sensible spot. Drop irrelevant images. Never invent URLs.\n\nHere are today's newsletters:\n\n${emailContents}`;
 
   const llm = createLLM(llmConfig);
   const structuredLLM = llm.withStructuredOutput(DigestSchema, {

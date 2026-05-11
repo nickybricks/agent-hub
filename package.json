@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "agent:run": "npx tsx src/agent/run.ts",
+    "agent:run": "npx tsx --env-file=.env.local src/agent/run.ts",
     "schedule:install": "bash scripts/install-schedule.sh",
     "schedule:uninstall": "bash scripts/uninstall-schedule.sh"
   },

@@ -22,6 +22,7 @@ interface AgentConfig {
     deliverEmailTo: string;
     llm: {
       provider: string;
+      apiKeys?: { anthropic?: string; openai?: string; google?: string };
       apiKey?: string;
       baseUrl?: string;
       model: string;
@@ -561,11 +562,10 @@ export default function NewsletterAgentPage() {
                                 ...agent.settings.llm,
                                 provider,
                                 model: PROVIDER_DEFAULTS[provider],
-                                apiKey: "",
                                 baseUrl:
                                   provider === "ollama"
-                                    ? "http://localhost:11434"
-                                    : undefined,
+                                    ? (agent.settings.llm?.baseUrl ?? "http://localhost:11434")
+                                    : agent.settings.llm?.baseUrl,
                               },
                             },
                           })
@@ -703,19 +703,32 @@ export default function NewsletterAgentPage() {
                   </label>
                   <input
                     type="password"
-                    value={agent.settings.llm?.apiKey ?? ""}
-                    onChange={(e) =>
+                    value={
+                      (agent.settings.llm?.provider === "anthropic" ||
+                      agent.settings.llm?.provider === "openai" ||
+                      agent.settings.llm?.provider === "google"
+                        ? agent.settings.llm?.apiKeys?.[agent.settings.llm.provider]
+                        : "") ?? ""
+                    }
+                    onChange={(e) => {
+                      const provider = agent.settings.llm?.provider as
+                        | "anthropic"
+                        | "openai"
+                        | "google";
                       setAgent({
                         ...agent,
                         settings: {
                           ...agent.settings,
                           llm: {
                             ...agent.settings.llm,
-                            apiKey: e.target.value,
+                            apiKeys: {
+                              ...(agent.settings.llm?.apiKeys ?? {}),
+                              [provider]: e.target.value,
+                            },
                           },
                         },
-                      })
-                    }
+                      });
+                    }}
                     placeholder={
                       agent.settings.llm?.provider === "openai"
                         ? "sk-…"

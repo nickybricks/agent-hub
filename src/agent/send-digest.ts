@@ -2,9 +2,10 @@ import { execSync } from "child_process";
 import { writeFileSync, unlinkSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { traceable } from "langsmith/traceable";
 import { Summary } from "../lib/types";
 
-export function sendDigestEmail(summary: Summary, to: string): boolean {
+function _sendDigestEmail(summary: Summary, to: string): boolean {
   if (!to) {
     console.log("No email recipient configured. Skipping email delivery.");
     return false;
@@ -54,3 +55,8 @@ Sources: ${summary.sources.map((s) => s.sender).join(", ")}`;
     try { unlinkSync(tmpFile); } catch {}
   }
 }
+
+export const sendDigestEmail = traceable(_sendDigestEmail, {
+  name: "send-digest-email",
+  run_type: "tool",
+});
