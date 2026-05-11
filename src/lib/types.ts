@@ -18,6 +18,7 @@ export interface NewsletterAgent extends AgentConfig {
     lookbackHours: number;
     maxEmailsPerRun: number;
     summaryStyle: "brief" | "detailed" | "bullet-points";
+    language: string;
     deliverEmail: boolean;
     deliverEmailTo: string;
     llm: {

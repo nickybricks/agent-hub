@@ -33,6 +33,13 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# user data — may contain API keys and personal content
+data/config.json
+data/runs.json
+data/summaries/
+data/debug/
+logs/
+
 # vercel
 .vercel
 

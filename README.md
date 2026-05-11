@@ -1,36 +1,112 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# mail-workflow
 
-## Getting Started
+A macOS app that fetches AI/tech newsletters from Apple Mail, summarizes them with an LLM, and serves a daily digest UI.
 
-First, run the development server:
+**Requires macOS** — it talks to Apple Mail via AppleScript.
+
+## How it works
+
+1. An agent script reads newsletters from Apple Mail (by sender address or name).
+2. It summarizes them using an LLM of your choice (Anthropic, OpenAI, Google, or Ollama).
+3. The digest is stored locally as JSON and shown in a Next.js UI at `http://localhost:3000`.
+4. Optionally, the digest is emailed to you via Apple Mail.
+
+The agent can be triggered manually or run on a schedule via launchd.
+
+## Setup
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### API Keys
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Set API keys as environment variables — the agent picks them up automatically. The UI also has a fallback field to store a key in `data/config.json`, but environment variables are preferred.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Provider  | Environment variable  |
+|-----------|-----------------------|
+| Anthropic | `ANTHROPIC_API_KEY`   |
+| OpenAI    | `OPENAI_API_KEY`      |
+| Google    | `GOOGLE_API_KEY`      |
+| Ollama    | *(no key needed)*     |
 
-## Learn More
+Add these to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.):
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+export OPENAI_API_KEY="sk-proj-..."
+export GOOGLE_API_KEY="AIza..."
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Or create a `.env.local` file in the project root (never committed):
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+ANTHROPIC_API_KEY=sk-ant-...
+OPENAI_API_KEY=sk-proj-...
+GOOGLE_API_KEY=AIza...
+```
 
-## Deploy on Vercel
+### Optional: LangSmith tracing
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+All LLM calls are instrumented with [LangSmith](https://smith.langchain.com/) via `langsmith/traceable`. To enable tracing, add these variables:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+LANGCHAIN_TRACING_V2=true
+LANGCHAIN_API_KEY="ls__..."
+LANGCHAIN_PROJECT="mail-workflow"   # optional — groups runs in the LangSmith UI
+```
+
+Without these, the app works normally — tracing is silently skipped.
+
+## Running
+
+```bash
+# Start the UI
+npm run dev
+
+# Run the agent once (fetch → summarize → save)
+npm run agent:run
+
+# Lint
+npm run lint
+```
+
+Open [http://localhost:3000](http://localhost:3000) to see the digest UI and configure the agent.
+
+## Scheduling (launchd)
+
+To run the agent automatically on a schedule, use the included scripts:
+
+```bash
+# Install the launchd job (uses the schedule configured in the UI)
+./scripts/install-schedule.sh
+
+# Remove it
+./scripts/uninstall-schedule.sh
+```
+
+## Configuration
+
+All agent settings are stored in `data/config.json` and editable via the Settings tab in the UI:
+
+- **Senders** — email addresses or sender names to monitor
+- **Lookback window** — how many hours back to fetch emails
+- **Max emails per run** — cap on emails processed in one run
+- **Output language** — language the digest is written in
+- **LLM provider + model** — which AI to use
+- **System prompt** — instructions for the LLM
+- **Schedule** — when to run automatically
+- **Email delivery** — optionally send the digest via Apple Mail
+
+> `data/config.json` contains user settings and should not be committed. Add it to `.gitignore` if you fork this repo.
+
+## Data
+
+All data is stored as flat JSON files — no database required:
+
+| Path | Contents |
+|------|----------|
+| `data/config.json` | Agent configuration |
+| `data/runs.json` | Last 50 agent run records |
+| `data/summaries/YYYY-MM-DD.json` | Daily digest summaries |
+| `data/debug/` | Full debug snapshots (prompt + response) per run |
