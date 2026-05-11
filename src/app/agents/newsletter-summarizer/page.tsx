@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import { PROVIDER_MODELS, PROVIDER_DEFAULTS } from "@/lib/models";
@@ -17,6 +17,7 @@ interface AgentConfig {
     lookbackHours: number;
     maxEmailsPerRun: number;
     summaryStyle: string;
+    language: string;
     deliverEmail: boolean;
     deliverEmailTo: string;
     llm: {
@@ -82,7 +83,9 @@ export default function NewsletterAgentPage() {
   );
   const [running, setRunning] = useState(false);
   const [newSender, setNewSender] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "pending" | "saving" | "saved">("idle");
+  const savedSnapshot = useRef<string | null>(null);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadData = useCallback(async () => {
     const [agentRes, summariesRes, runsRes] = await Promise.all([
@@ -111,16 +114,28 @@ export default function NewsletterAgentPage() {
     }
   }
 
-  async function handleSave() {
+  useEffect(() => {
     if (!agent) return;
-    setSaving(true);
-    await fetch("/api/agents/newsletter-summarizer", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(agent),
-    });
-    setSaving(false);
-  }
+    const current = JSON.stringify(agent);
+    if (savedSnapshot.current === null) {
+      savedSnapshot.current = current;
+      return;
+    }
+    if (current === savedSnapshot.current) return;
+    setSaveStatus("pending");
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      setSaveStatus("saving");
+      const body = JSON.stringify(agent);
+      await fetch("/api/agents/newsletter-summarizer", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
+      savedSnapshot.current = body;
+      setSaveStatus("saved");
+    }, 800);
+  }, [agent]);
 
   function addSender() {
     if (!agent || !newSender.trim()) return;
@@ -278,6 +293,13 @@ export default function NewsletterAgentPage() {
       {/* ──── Settings Tab ──── */}
       {tab === "settings" && (
         <div className="max-w-2xl space-y-6">
+          {/* Auto-save indicator */}
+          <div className="flex justify-end text-xs text-muted h-4">
+            {saveStatus === "pending" && <span>Unsaved changes…</span>}
+            {saveStatus === "saving" && <span>Saving…</span>}
+            {saveStatus === "saved" && <span className="text-accent">All changes saved</span>}
+          </div>
+
           {/* Status */}
           <div className="bg-card border border-border rounded-xl p-5 shadow-sm shadow-shadow">
             <div className="flex items-center justify-between">
@@ -294,6 +316,32 @@ export default function NewsletterAgentPage() {
                 }
               />
             </div>
+          </div>
+
+          {/* Output Language */}
+          <div className="bg-card border border-border rounded-xl p-5 shadow-sm shadow-shadow">
+            <h3 className="font-medium mb-1">Output Language</h3>
+            <p className="text-sm text-muted mb-4">
+              Language the digest will be written in (e.g. English, German, French).
+            </p>
+            <select
+              value={agent.settings.language || "English"}
+              onChange={(e) =>
+                setAgent({
+                  ...agent,
+                  settings: { ...agent.settings, language: e.target.value },
+                })
+              }
+              className="w-full bg-input-bg border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20"
+            >
+              {["English", "German", "French", "Spanish", "Italian", "Portuguese", "Dutch", "Japanese", "Chinese"].map(
+                (lang) => (
+                  <option key={lang} value={lang}>
+                    {lang}
+                  </option>
+                )
+              )}
+            </select>
           </div>
 
           {/* Newsletter Senders */}
@@ -718,14 +766,6 @@ export default function NewsletterAgentPage() {
             />
           </div>
 
-          {/* Save Button */}
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="w-full px-4 py-3 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 shadow-sm"
-          >
-            {saving ? "Saving..." : "Save Settings"}
-          </button>
         </div>
       )}
 
