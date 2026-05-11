@@ -105,3 +105,49 @@ npm run lint         # ESLint
 - `data/config.json` is user data — never overwrite it with defaults or reset it without an explicit ask.
 - The UI config form saves partial settings via `PATCH /api/agents/[id]` — it deep-merges `settings`, so partial updates are safe.
 - Never fabricate or guess URLs in summaries — the system prompt already enforces this; don't weaken it.
+
+---
+
+## Git Push & Release Workflow
+
+When asked to push to GitHub, follow this exact process:
+
+### 1. Version Bump (Semantic Versioning)
+
+Determine the version bump based on scope of changes:
+
+| Change Type | Bump | Example |
+|---|---|---|
+| Bug fixes, typos, minor tweaks | **Patch** (`0.1.0` → `0.1.1`) | Fix a broken route or copy |
+| New features, significant additions | **Minor** (`0.1.0` → `0.2.0`) | Add a new agent feature or UI section |
+| Breaking changes, major rewrites | **Major** (`0.1.0` → `1.0.0`) | Complete architecture change |
+
+- Update `"version"` in `package.json`
+
+### 2. Never commit these files
+
+- `data/config.json` — contains API keys and user settings
+- `data/runs.json`, `data/summaries/` — runtime data
+- `logs/` — log output
+- `tasks/` — planning docs
+
+### 3. Commit & Tag
+
+```bash
+# Stage only source files (never data/, logs/, tasks/)
+git add next.config.ts package.json src/ scripts/ public/
+
+# Commit with version in message
+git commit -m "v{VERSION}: {brief description}"
+
+# Create a git tag
+git tag v{VERSION}
+```
+
+### 4. Push
+
+```bash
+git push origin main --tags
+```
+
+Always push tags with `--tags` so GitHub creates a release reference.
