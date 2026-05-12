@@ -65,6 +65,12 @@ export default function RootLayout({
                 >
                   Dashboard
                 </Link>
+                <Link
+                  href="/mail-analyzer"
+                  className="hover:text-foreground transition-colors"
+                >
+                  Mail Analyzer
+                </Link>
               </div>
               <div className="w-px h-5 bg-border" />
               <ThemeToggle />
