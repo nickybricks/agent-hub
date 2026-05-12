@@ -33,6 +33,11 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# mail analyzer DB (local cache, not source of truth)
+data/mail-analyzer.db
+data/mail-analyzer.db-shm
+data/mail-analyzer.db-wal
+
 # user data — may contain API keys and personal content
 data/config.json
 data/runs.json
