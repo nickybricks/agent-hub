@@ -1,60 +1,83 @@
 import { ImapFlow } from "imapflow";
+import type {
+  MailProvider,
+  MailboxInfo,
+  MailMessage,
+  RawMessage,
+} from "../../lib/mail-provider";
 
-export interface MailboxInfo {
-  name: string;
-  account: string;
-  messageCount: number;
-  unreadCount: number;
+interface ImapConfig {
+  host?: string;
+  port?: number;
+  user?: string;
+  password?: string;
 }
 
-export interface MailMessage {
-  id: string;
-  mailbox: string;
-  account: string;
-  senderEmail: string;
-  senderName: string;
-  subject: string;
-  dateReceived: string;
-  isRead: boolean;
-  sizeBytes: number;
-}
-
-function getCreds() {
-  const host = process.env.IMAP_HOST;
-  const user = process.env.IMAP_USER;
-  const pass = process.env.IMAP_PASSWORD;
+function getCreds(cfg?: ImapConfig) {
+  const host = process.env.IMAP_HOST ?? cfg?.host;
+  const user = process.env.IMAP_USER ?? cfg?.user;
+  const pass = process.env.IMAP_PASSWORD ?? cfg?.password;
+  const port = parseInt(
+    process.env.IMAP_PORT ?? (cfg?.port != null ? String(cfg.port) : "993"),
+    10
+  );
   if (!host || !user || !pass) {
     throw new Error(
-      "Missing IMAP credentials. Set IMAP_HOST, IMAP_USER, IMAP_PASSWORD in .env.local"
+      "Missing IMAP credentials. Set IMAP_HOST, IMAP_USER, IMAP_PASSWORD in .env.local (or data/config.json mail.imap)."
     );
   }
-  return {
-    host,
-    user,
-    pass,
-    port: parseInt(process.env.IMAP_PORT || "993", 10),
-  };
+  return { host, user, pass, port };
 }
 
-async function newClient(): Promise<ImapFlow> {
-  const { host, port, user, pass } = getCreds();
+const AUDIT_HEADER_KEYS: Record<string, "auth" | "lu" | "prec" | "as"> = {
+  "authentication-results": "auth",
+  "list-unsubscribe": "lu",
+  precedence: "prec",
+  "auto-submitted": "as",
+};
+
+function parseAuditHeaders(headers: Buffer | undefined): string | null {
+  if (!headers || headers.length === 0) return null;
+  const text = headers.toString("utf-8");
+  const unfolded = text.replace(/\r?\n[ \t]+/g, " ");
+  const out: Record<string, string> = {};
+  for (const line of unfolded.split(/\r?\n/)) {
+    const idx = line.indexOf(":");
+    if (idx < 0) continue;
+    const name = line.slice(0, idx).trim().toLowerCase();
+    const key = AUDIT_HEADER_KEYS[name];
+    if (!key) continue;
+    const value = line.slice(idx + 1).trim();
+    if (!value) continue;
+    out[key] = out[key] ? `${out[key]}; ${value}` : value;
+  }
+  return Object.keys(out).length === 0 ? null : JSON.stringify(out);
+}
+
+async function newClient(cfg?: ImapConfig): Promise<ImapFlow> {
+  const { host, port, user, pass } = getCreds(cfg);
   const client = new ImapFlow({
     host,
     port,
     secure: true,
     auth: { user, pass },
     logger: false,
-    socketTimeout: 5 * 60 * 1000, // 5 min — long fetches can be slow
+    socketTimeout: 5 * 60 * 1000,
   });
   await client.connect();
   return client;
 }
 
-export class MailSession {
+export class ImapProvider implements MailProvider {
   private client: ImapFlow | null = null;
+  private cfg?: ImapConfig;
+
+  constructor(cfg?: ImapConfig) {
+    this.cfg = cfg;
+  }
 
   async open(): Promise<void> {
-    this.client = await newClient();
+    this.client = await newClient(this.cfg);
   }
 
   async close(): Promise<void> {
@@ -66,13 +89,13 @@ export class MailSession {
   private async getClient(): Promise<ImapFlow> {
     if (!this.client || !this.client.usable) {
       console.log("  (reconnecting IMAP...)");
-      this.client = await newClient();
+      this.client = await newClient(this.cfg);
     }
     return this.client;
   }
 
   async listMailboxes(): Promise<MailboxInfo[]> {
-    const { user } = getCreds();
+    const { user } = getCreds(this.cfg);
     const client = await this.getClient();
     const result: MailboxInfo[] = [];
     const boxes = await client.list();
@@ -93,7 +116,6 @@ export class MailSession {
     return result;
   }
 
-  // Scans a mailbox. Retries once on transient connection failure.
   async scanMailbox(
     account: string,
     mailboxPath: string,
@@ -138,6 +160,7 @@ export class MailSession {
         envelope: true,
         flags: true,
         size: true,
+        headers: ["authentication-results", "list-unsubscribe", "precedence", "auto-submitted"],
       })) {
         const from = msg.envelope?.from?.[0];
         const date = msg.envelope?.date ?? new Date();
@@ -156,6 +179,7 @@ export class MailSession {
           dateReceived: date.toISOString(),
           isRead: msg.flags?.has("\\Seen") ?? false,
           sizeBytes: msg.size ?? 0,
+          headersJson: parseAuditHeaders(msg.headers),
         });
 
         if (buffer.length >= CHUNK_SIZE) flush();
@@ -163,6 +187,34 @@ export class MailSession {
       flush();
 
       return total;
+    } finally {
+      lock.release();
+    }
+  }
+
+  async fetchRawBySender(
+    mailboxPath: string,
+    sender: string,
+    since: Date,
+    limit: number
+  ): Promise<RawMessage[]> {
+    if (limit <= 0) return [];
+    const client = await this.getClient();
+    const lock = await client.getMailboxLock(mailboxPath);
+    try {
+      const uids = await client.search({ from: sender, since }, { uid: true });
+      if (!uids || uids.length === 0) return [];
+      const slice = uids.slice(-limit).reverse();
+      const out: RawMessage[] = [];
+      for await (const msg of client.fetch(slice, { uid: true, source: true, flags: true }, { uid: true })) {
+        if (!msg.source) continue;
+        out.push({
+          uid: msg.uid,
+          source: msg.source,
+          isRead: msg.flags?.has("\\Seen") ?? false,
+        });
+      }
+      return out;
     } finally {
       lock.release();
     }

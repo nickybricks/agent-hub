@@ -51,7 +51,7 @@ function renderDigestMarkdown(digest: Digest): string {
   return parts.join("\n").trimEnd();
 }
 
-interface LLMConfig {
+export interface LLMConfig {
   provider: "anthropic" | "openai" | "google" | "ollama";
   apiKeys?: { anthropic?: string; openai?: string; google?: string };
   apiKey?: string;
@@ -84,7 +84,7 @@ function resolveApiKey(config: LLMConfig): string {
   return key;
 }
 
-function createLLM(config: LLMConfig): BaseChatModel {
+export function createLLM(config: LLMConfig): BaseChatModel {
   const apiKey = resolveApiKey(config);
   switch (config.provider) {
     case "anthropic":

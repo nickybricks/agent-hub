@@ -1,4 +1,5 @@
-import { MailSession } from "./mail-imap";
+import { spawnSync } from "child_process";
+import { createMailProvider } from "../lib/mail-provider";
 import {
   upsertMailbox,
   upsertMessages,
@@ -17,9 +18,10 @@ function shouldSkip(name: string): boolean {
 }
 
 async function main() {
-  console.log("Starting mailbox analysis via IMAP...");
+  const rescanHeaders = process.argv.includes("--rescan-headers");
+  console.log(`Starting mailbox analysis via IMAP...${rescanHeaders ? " (rescan-headers: ignoring watermark)" : ""}`);
 
-  const session = new MailSession();
+  const session = await createMailProvider();
   let allMailboxes;
   try {
     await session.open();
@@ -37,7 +39,7 @@ async function main() {
 
   try {
     for (const mbInfo of allMailboxes) {
-      const watermark = getWatermark(mbInfo.name, mbInfo.account);
+      const watermark = rescanHeaders ? null : getWatermark(mbInfo.name, mbInfo.account);
       console.log(
         `Scanning "${mbInfo.name}" (${mbInfo.messageCount} messages${watermark ? `, since ${watermark}` : ", full scan"})`
       );
@@ -75,6 +77,16 @@ async function main() {
     process.exit(1);
   } finally {
     await session.close();
+  }
+
+  if (process.argv.includes("--classify")) {
+    console.log("\nRunning sender classification...");
+    const res = spawnSync(
+      "npx",
+      ["tsx", "--env-file=.env.local", "src/agent/classify-senders.ts"],
+      { stdio: "inherit" },
+    );
+    if (res.status !== 0) process.exit(res.status ?? 1);
   }
 }
 
