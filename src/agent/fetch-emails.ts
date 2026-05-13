@@ -1,18 +1,7 @@
-import { execSync } from "child_process";
-import { writeFileSync, unlinkSync } from "fs";
-import { tmpdir } from "os";
-import { join } from "path";
+import { simpleParser } from "mailparser";
 import { traceable } from "langsmith/traceable";
 import { Email } from "../lib/types";
-
-// MIME quoted-printable decoder. Newsletter HTML is usually QP-encoded in the
-// raw `source of msg`, which is why naive href="..." matching misses URLs
-// (they appear as href=3D"...=\n...").
-function decodeQuotedPrintable(s: string): string {
-  return s
-    .replace(/=\r?\n/g, "")
-    .replace(/=([0-9A-Fa-f]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
-}
+import { createMailProvider } from "../lib/mail-provider";
 
 function decodeHtmlEntities(s: string): string {
   return s
@@ -55,7 +44,6 @@ function extractImagesFromHtml(html: string): { id: string; url: string; alt: st
     const srcM = /\bsrc=["'](https?:\/\/[^"']+)["']/i.exec(tag);
     if (!srcM) continue;
     const url = decodeHtmlEntities(srcM[1]);
-    // Skip 1x1 trackers and common tracking pixel hosts
     if (SKIP_URL.test(url)) continue;
     if (/width=["']?1["']?/i.test(tag) && /height=["']?1["']?/i.test(tag)) continue;
     if (seen.has(url)) continue;
@@ -68,147 +56,93 @@ function extractImagesFromHtml(html: string): { id: string; url: string; alt: st
   return results;
 }
 
-// Apple Mail replaces inline images in `content of msg` with U+FFFC (￼).
-// Swap those for [IMAGE_N] markers so the LLM can position images in output.
-function annotateImageMarkers(body: string, imageCount: number): string {
-  let i = 0;
-  return body.replace(/￼/g, () => {
-    i += 1;
-    return i <= imageCount ? `[IMAGE_${i}]` : "";
-  });
+// Insert [IMAGE_N] markers into plaintext so the LLM can position images.
+// We anchor at paragraph breaks, evenly spaced through the body.
+function insertImageMarkers(plain: string, imageCount: number): string {
+  if (imageCount === 0 || !plain) return plain;
+  const paragraphs = plain.split(/\n{2,}/);
+  if (paragraphs.length <= 1) {
+    return plain + "\n\n" + Array.from({ length: imageCount }, (_, i) => `[IMAGE_${i + 1}]`).join(" ");
+  }
+  const step = Math.max(1, Math.floor(paragraphs.length / (imageCount + 1)));
+  for (let i = 0; i < imageCount; i++) {
+    const idx = Math.min(paragraphs.length - 1, (i + 1) * step);
+    paragraphs[idx] = `[IMAGE_${i + 1}]\n\n${paragraphs[idx]}`;
+  }
+  return paragraphs.join("\n\n");
 }
 
-function escapeForAppleScript(str: string): string {
-  return str.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-}
+// Patterns for mailboxes we skip when searching for newsletters.
+const SKIP_MAILBOX = /\b(drafts?|entwürfe|trash|deleted|papierkorb|gelöscht|sent|gesendete?|outbox|postausgang)\b/i;
 
-function _fetchNewsletterEmails(
+async function _fetchNewsletterEmails(
   senders: string[],
   lookbackHours: number,
   maxEmails: number
-): Email[] {
+): Promise<Email[]> {
   if (senders.length === 0) {
     console.log("No senders configured. Skipping email fetch.");
     return [];
   }
 
-  const senderConditions = senders
-    .map((s) => `sender of msg contains "${escapeForAppleScript(s)}"`)
-    .join(" or ");
+  const since = new Date(Date.now() - lookbackHours * 60 * 60 * 1000);
+  const session = await createMailProvider();
+  await session.open();
 
-  const script = `
-    tell application "Mail"
-      set cutoffDate to (current date) - (${lookbackHours} * 60 * 60)
-      set matchingMessages to {}
-      set msgCount to 0
+  const collected: Email[] = [];
+  const seenIds = new Set<string>();
 
-      repeat with acct in accounts
-        repeat with mb in mailboxes of acct
-          try
-            set msgs to (messages of mb whose date received > cutoffDate)
-            repeat with msg in msgs
-              if msgCount ≥ ${maxEmails} then exit repeat
-              try
-                if ${senderConditions} then
-                  set senderName to sender of msg
-                  set senderAddr to extract address from sender of msg
-                  set msgSubject to subject of msg
-                  set msgDate to date received of msg as string
-                  set msgContent to content of msg
-                  set msgId to message id of msg
-                  set msgRead to read status of msg
-
-                  -- Truncate very long emails
-                  if length of msgContent > 10000 then
-                    set msgContent to text 1 thru 10000 of msgContent
-                  end if
-
-                  -- Fetch raw HTML source for link extraction (truncated to keep memory safe)
-                  set msgSource to ""
-                  try
-                    set msgSource to source of msg
-                    if length of msgSource > 100000 then
-                      set msgSource to text 1 thru 100000 of msgSource
-                    end if
-                  end try
-
-                  set end of matchingMessages to "---EMAIL_START---" & ¬
-                    "ID:" & msgId & ¬
-                    "---FIELD---" & "SUBJECT:" & msgSubject & ¬
-                    "---FIELD---" & "SENDER:" & senderName & ¬
-                    "---FIELD---" & "SENDER_EMAIL:" & senderAddr & ¬
-                    "---FIELD---" & "DATE:" & msgDate & ¬
-                    "---FIELD---" & "READ:" & (msgRead as string) & ¬
-                    "---FIELD---" & "BODY:" & msgContent & ¬
-                    "---FIELD---" & "SOURCE:" & msgSource & ¬
-                    "---EMAIL_END---"
-                  set msgCount to msgCount + 1
-                end if
-              end try
-            end repeat
-            if msgCount ≥ ${maxEmails} then exit repeat
-          end try
-        end repeat
-        if msgCount ≥ ${maxEmails} then exit repeat
-      end repeat
-
-      set AppleScript's text item delimiters to "|||"
-      return matchingMessages as string
-    end tell
-  `;
-
-  const tmpFile = join(tmpdir(), `mail-fetch-${Date.now()}.scpt`);
   try {
-    writeFileSync(tmpFile, script, "utf-8");
-    const result = execSync(`osascript "${tmpFile}"`, {
-      maxBuffer: 50 * 1024 * 1024,
-      timeout: 120000,
-    }).toString();
+    const boxes = await session.listMailboxes();
+    const searchable = boxes.filter((b) => !SKIP_MAILBOX.test(b.name));
 
-    if (!result.trim()) {
-      return [];
+    for (const box of searchable) {
+      if (collected.length >= maxEmails) break;
+
+      for (const sender of senders) {
+        if (collected.length >= maxEmails) break;
+
+        const raws = await session.fetchRawBySender(box.name, sender, since, maxEmails - collected.length);
+        for (const r of raws) {
+          if (collected.length >= maxEmails) break;
+          const email = await parseRawEmail(r.source, `${box.name}:${r.uid}`);
+          email.isRead = r.isRead;
+          if (seenIds.has(email.id)) continue;
+          seenIds.add(email.id);
+          collected.push(email);
+        }
+      }
     }
-
-    const emailBlocks = result.split("|||");
-    const emails: Email[] = [];
-
-    for (const block of emailBlocks) {
-      if (!block.includes("---EMAIL_START---")) continue;
-
-      const content = block
-        .replace("---EMAIL_START---", "")
-        .replace("---EMAIL_END---", "");
-      const fields = content.split("---FIELD---");
-
-      const getField = (prefix: string): string => {
-        const field = fields.find((f) => f.startsWith(prefix));
-        return field ? field.slice(prefix.length).trim() : "";
-      };
-
-      const rawSource = getField("SOURCE:");
-      const html = decodeQuotedPrintable(rawSource);
-      const images = extractImagesFromHtml(html);
-      const body = annotateImageMarkers(getField("BODY:"), images.length);
-      emails.push({
-        id: getField("ID:"),
-        subject: getField("SUBJECT:"),
-        sender: getField("SENDER:"),
-        senderEmail: getField("SENDER_EMAIL:"),
-        date: getField("DATE:"),
-        body,
-        links: extractLinksFromHtml(html),
-        images,
-        isRead: getField("READ:") === "true",
-      });
-    }
-
-    return emails;
-  } catch (error) {
-    console.error("Error fetching emails from Apple Mail:", error);
-    return [];
   } finally {
-    try { unlinkSync(tmpFile); } catch {}
+    await session.close();
   }
+
+  return collected;
+}
+
+// Parse a raw RFC822 source into our Email shape.
+export async function parseRawEmail(source: Buffer | string, fallbackId: string): Promise<Email> {
+  const parsed = await simpleParser(source);
+  const from = parsed.from?.value?.[0];
+  const html = typeof parsed.html === "string" ? parsed.html : "";
+  const images = extractImagesFromHtml(html);
+  const links = extractLinksFromHtml(html);
+
+  const plain = parsed.text ?? "";
+  const truncated = plain.length > 10000 ? plain.slice(0, 10000) : plain;
+  const body = insertImageMarkers(truncated, images.length);
+
+  return {
+    id: parsed.messageId?.trim() || fallbackId,
+    subject: parsed.subject ?? "",
+    sender: from?.name || from?.address || "",
+    senderEmail: (from?.address ?? "").toLowerCase(),
+    date: (parsed.date ?? new Date()).toString(),
+    body,
+    links,
+    images,
+    isRead: false, // overridden by caller using IMAP flags
+  };
 }
 
 export const fetchNewsletterEmails = traceable(_fetchNewsletterEmails, {

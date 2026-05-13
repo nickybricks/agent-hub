@@ -1,12 +1,15 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import Link from "next/link";
-import ThemeToggle from "@/components/ThemeToggle";
+import { Plus_Jakarta_Sans, Geist_Mono } from "next/font/google";
+import Sidebar, { MobileTopBar } from "@/components/Sidebar";
+import { ToastProvider } from "@/components/ui/Toast";
+import { PageTransition } from "@/components/ui/PageTransition";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const jakarta = Plus_Jakarta_Sans({
+  variable: "--font-jakarta",
   subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700", "800"],
+  display: "swap",
 });
 
 const geistMono = Geist_Mono({
@@ -27,11 +30,10 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${jakarta.variable} ${geistMono.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <head>
-        {/* Inline script to prevent flash of wrong theme */}
         <script
           dangerouslySetInnerHTML={{
             __html: `
@@ -46,38 +48,14 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className="min-h-full flex flex-col">
-        <nav className="border-b border-border bg-card shadow-sm shadow-shadow">
-          <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-            <Link href="/" className="flex items-center gap-2.5">
-              <div className="w-8 h-8 bg-accent rounded-lg flex items-center justify-center text-white font-bold text-sm shadow-sm">
-                A
-              </div>
-              <span className="text-lg font-semibold text-foreground">
-                Agent Hub
-              </span>
-            </Link>
-            <div className="flex items-center gap-5">
-              <div className="flex items-center gap-5 text-sm text-muted">
-                <Link
-                  href="/"
-                  className="hover:text-foreground transition-colors"
-                >
-                  Dashboard
-                </Link>
-                <Link
-                  href="/mail-analyzer"
-                  className="hover:text-foreground transition-colors"
-                >
-                  Mail Analyzer
-                </Link>
-              </div>
-              <div className="w-px h-5 bg-border" />
-              <ThemeToggle />
-            </div>
-          </div>
-        </nav>
-        <main className="flex-1">{children}</main>
+      <body className="min-h-full">
+        <ToastProvider>
+          <Sidebar />
+          <MobileTopBar />
+          <main className="md:ml-[296px]">
+            <PageTransition>{children}</PageTransition>
+          </main>
+        </ToastProvider>
       </body>
     </html>
   );

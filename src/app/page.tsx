@@ -26,7 +26,7 @@ export default function Dashboard() {
             <Link
               key={agent.id}
               href={`/agents/${agent.id}`}
-              className="bg-card border border-border rounded-xl p-5 hover:bg-card-hover hover:border-accent/30 hover:shadow-md hover:shadow-shadow transition-all group shadow-sm shadow-shadow"
+              className="card p-5 group block hover:bg-card-hover"
             >
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-3">
@@ -77,7 +77,7 @@ export default function Dashboard() {
         })}
 
         {/* Add Agent Card */}
-        <div className="bg-card border border-dashed border-border rounded-xl p-5 flex items-center justify-center text-muted hover:border-accent/30 hover:text-accent transition-all cursor-pointer shadow-sm shadow-shadow">
+        <div className="bg-card border border-dashed border-border rounded-[1.25rem] p-5 flex items-center justify-center text-muted hover:border-accent/40 hover:text-accent transition-colors cursor-pointer">
           <div className="text-center">
             <div className="text-3xl mb-2">+</div>
             <p className="text-sm font-medium">Add Agent</p>
@@ -89,11 +89,11 @@ export default function Dashboard() {
       <div>
         <h2 className="text-lg font-semibold mb-4">Recent Runs</h2>
         {runs.length === 0 ? (
-          <div className="bg-card border border-border rounded-xl p-8 text-center text-muted shadow-sm shadow-shadow">
+          <div className="card p-8 text-center text-muted">
             <p className="text-sm">No runs yet.</p>
           </div>
         ) : (
-          <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm shadow-shadow">
+          <div className="card overflow-hidden">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-muted">

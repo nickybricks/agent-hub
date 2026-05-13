@@ -1,6 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { MetricCard } from "@/components/ui/MetricCard";
+import { VolumeChart } from "@/components/ui/VolumeChart";
+import { Button } from "@/components/ui/Button";
 
 interface Overview {
   totals: {
@@ -52,6 +55,34 @@ interface JunkData {
   total: number;
 }
 
+interface CategoryRow {
+  category: string;
+  sender_count: number;
+  message_count: number;
+}
+
+const CATEGORY_META: Record<string, { color: string; chip: string }> = {
+  newsletter:     { color: "var(--cat-newsletter)",    chip: "bg-sky-50 text-sky-600 dark:bg-sky-950 dark:text-sky-300" },
+  transactional:  { color: "var(--cat-transactional)", chip: "bg-[var(--brand-soft)] text-[var(--brand)]" },
+  personal:       { color: "var(--cat-personal)",      chip: "bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300" },
+  promotional:    { color: "var(--cat-promotional)",   chip: "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300" },
+  notification:   { color: "var(--cat-notification)",  chip: "bg-orange-50 text-orange-600 dark:bg-orange-950 dark:text-orange-300" },
+  social:         { color: "var(--cat-social)",        chip: "bg-cyan-50 text-cyan-600 dark:bg-cyan-950 dark:text-cyan-300" },
+  work:           { color: "var(--cat-work)",          chip: "bg-violet-50 text-violet-600 dark:bg-violet-950 dark:text-violet-300" },
+  other:          { color: "var(--cat-spam)",          chip: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300" },
+  unclassified:   { color: "var(--cat-spam)",          chip: "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400" },
+};
+
+function CategoryBadge({ category }: { category: string | null }) {
+  const c = category ?? "unclassified";
+  const meta = CATEGORY_META[c] ?? CATEGORY_META.other;
+  return (
+    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${meta.chip}`}>
+      {c}
+    </span>
+  );
+}
+
 function fmt(n: number | null | undefined) {
   if (n == null) return "—";
   return n.toLocaleString();
@@ -75,6 +106,8 @@ export default function MailAnalyzerPage() {
   const [mailboxes, setMailboxes] = useState<Mailbox[]>([]);
   const [volume, setVolume] = useState<VolumeRow[]>([]);
   const [junk, setJunk] = useState<JunkData | null>(null);
+  const [categories, setCategories] = useState<CategoryRow[]>([]);
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [now, setNow] = useState<number | null>(null);
@@ -88,20 +121,22 @@ export default function MailAnalyzerPage() {
   }, []);
 
   const loadAll = useCallback(async () => {
-    const [ov, snd, mb, vol, jk] = await Promise.all([
+    const [ov, snd, mb, vol, jk, cats] = await Promise.all([
       fetch("/api/mail-analyzer/overview").then((r) => r.json()),
-      fetch("/api/mail-analyzer/top-senders").then((r) => r.json()),
+      fetch(`/api/mail-analyzer/top-senders?category=${categoryFilter}`).then((r) => r.json()),
       fetch("/api/mail-analyzer/mailboxes").then((r) => r.json()),
       fetch("/api/mail-analyzer/volume-by-day").then((r) => r.json()),
       fetch("/api/mail-analyzer/junk").then((r) => r.json()),
+      fetch("/api/mail-analyzer/categories").then((r) => r.json()),
     ]);
     setOverview(ov);
     setSenders(snd.senders ?? []);
     setMailboxes(mb.mailboxes ?? []);
     setVolume(vol.rows ?? []);
     setJunk(jk);
+    setCategories(cats.categories ?? []);
     setLoading(false);
-  }, []);
+  }, [categoryFilter]);
 
   useEffect(() => {
     loadAll();
@@ -140,12 +175,10 @@ export default function MailAnalyzerPage() {
     }
   };
 
-  const maxVolume = Math.max(...volume.map((r) => r.message_count), 1);
-
   if (loading) {
     return (
-      <div className="max-w-7xl mx-auto px-6 py-8">
-        <p className="text-muted text-sm">Loading mail analyzer data...</p>
+      <div className="max-w-[1400px] mx-auto px-8 py-10">
+        <p className="text-sm" style={{ color: "var(--muted)" }}>Loading mail analyzer data…</p>
       </div>
     );
   }
@@ -162,12 +195,12 @@ export default function MailAnalyzerPage() {
     now - new Date(finishedAt).getTime() > 60 * 60 * 1000;
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-8">
-      <div className="mb-6">
+    <div className="max-w-[1400px] mx-auto px-8 py-10">
+      <div className="mb-8">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold mb-1">Mail Analyzer</h1>
-            <p className="text-muted text-sm">
+            <h1 className="text-3xl font-bold tracking-tight mb-1">Mail Analyzer</h1>
+            <p className="text-sm" style={{ color: "var(--muted)" }}>
               Read-only analysis of your Apple Mail account.
               {lastRun && !isRunning && (
                 <span>
@@ -186,13 +219,14 @@ export default function MailAnalyzerPage() {
               )}
             </p>
           </div>
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={triggerScan}
             disabled={scanning || isRunning}
-            className="px-3 py-1.5 text-sm rounded-lg border border-border bg-card hover:bg-card-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {isRunning || scanning ? "Scanning…" : "Refresh now"}
-          </button>
+          </Button>
         </div>
         {isStale && (
           <div className="mt-4 bg-warning-soft border border-border rounded-xl p-3 text-sm">
@@ -210,17 +244,10 @@ export default function MailAnalyzerPage() {
         <>
           {/* Totals */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-            {[
-              { label: "Total Messages", value: fmt(totals.total_messages) },
-              { label: "Unread", value: fmt(totals.unread_messages) },
-              { label: "Senders", value: fmt(totals.sender_count) },
-              { label: "Mailboxes", value: fmt(totals.mailbox_count) },
-            ].map((stat) => (
-              <div key={stat.label} className="bg-card border border-border rounded-xl p-4 shadow-sm shadow-shadow">
-                <p className="text-xs text-muted mb-1">{stat.label}</p>
-                <p className="text-2xl font-bold">{stat.value}</p>
-              </div>
-            ))}
+            <MetricCard label="Total Messages" value={fmt(totals.total_messages)} index={0} />
+            <MetricCard label="Unread" value={fmt(totals.unread_messages)} index={1} />
+            <MetricCard label="Senders" value={fmt(totals.sender_count)} index={2} />
+            <MetricCard label="Mailboxes" value={fmt(totals.mailbox_count)} index={3} />
           </div>
 
           {/* Date range */}
@@ -247,63 +274,94 @@ export default function MailAnalyzerPage() {
 
           {/* Overview tab: volume chart */}
           {activeTab === "overview" && (
-            <div className="bg-card border border-border rounded-xl p-5 shadow-sm shadow-shadow">
+            <div className="card p-5">
               <h2 className="font-semibold mb-4">Volume — last 90 days</h2>
-              {volume.length === 0 ? (
-                <p className="text-muted text-sm">No data.</p>
-              ) : (
-                <div className="flex items-end gap-px h-32 overflow-x-auto">
-                  {volume.map((row) => (
-                    <div
-                      key={row.day}
-                      title={`${row.day}: ${row.message_count}`}
-                      className="flex-1 min-w-[4px] bg-accent/60 hover:bg-accent rounded-t transition-colors"
-                      style={{ height: `${Math.max(2, (row.message_count / maxVolume) * 100)}%` }}
-                    />
-                  ))}
-                </div>
-              )}
+              <VolumeChart data={volume} />
             </div>
           )}
 
           {/* Senders tab */}
           {activeTab === "senders" && (
-            <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm shadow-shadow">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-muted">
-                    <th className="px-4 py-3 font-medium">Sender</th>
-                    <th className="px-4 py-3 font-medium text-right">Messages</th>
-                    <th className="px-4 py-3 font-medium text-right">Unread</th>
-                    <th className="px-4 py-3 font-medium text-right">Junk %</th>
-                    <th className="px-4 py-3 font-medium">Last seen</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {senders.map((s) => (
-                    <tr key={s.sender_email} className="border-b border-border last:border-0 hover:bg-card-hover transition-colors">
-                      <td className="px-4 py-2">
-                        <p className="font-medium truncate max-w-xs">{s.sender_name || s.sender_email}</p>
-                        <p className="text-xs text-muted">{s.sender_email}</p>
-                      </td>
-                      <td className="px-4 py-2 text-right">{fmt(s.message_count)}</td>
-                      <td className="px-4 py-2 text-right text-muted">{fmt(s.unread_count)}</td>
-                      <td className="px-4 py-2 text-right">
-                        {s.junk_pct > 0 ? (
-                          <span className="text-danger">{s.junk_pct.toFixed(0)}%</span>
-                        ) : "—"}
-                      </td>
-                      <td className="px-4 py-2 text-muted text-xs">{fmtDate(s.last_seen)}</td>
+            <div className="space-y-4">
+              {categories.length > 0 && (
+                <div className="card p-5">
+                  <h2 className="font-semibold mb-3">Categories</h2>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => setCategoryFilter("all")}
+                      className={`px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
+                        categoryFilter === "all"
+                          ? "border-accent text-accent bg-accent/10"
+                          : "border-border text-muted hover:text-foreground"
+                      }`}
+                    >
+                      All
+                    </button>
+                    {categories.map((c) => (
+                      <button
+                        key={c.category}
+                        onClick={() => setCategoryFilter(c.category)}
+                        className={`px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
+                          categoryFilter === c.category
+                            ? "border-accent text-accent bg-accent/10"
+                            : "border-border text-muted hover:text-foreground"
+                        }`}
+                      >
+                        <CategoryBadge category={c.category} />
+                        <span className="ml-2">{fmt(c.message_count)} msgs · {fmt(c.sender_count)} senders</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div className="card overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-left text-muted">
+                      <th className="px-4 py-3 font-medium">Sender</th>
+                      <th className="px-4 py-3 font-medium">Category</th>
+                      <th className="px-4 py-3 font-medium text-right">Messages</th>
+                      <th className="px-4 py-3 font-medium text-right">Unread</th>
+                      <th className="px-4 py-3 font-medium text-right">Junk %</th>
+                      <th className="px-4 py-3 font-medium">Last seen</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {senders.map((s) => (
+                      <tr key={s.sender_email} className="border-b border-border last:border-0 hover:bg-card-hover transition-colors">
+                        <td className="px-4 py-2">
+                          <p className="font-medium truncate max-w-xs">{s.sender_name || s.sender_email}</p>
+                          <p className="text-xs text-muted">{s.sender_email}</p>
+                        </td>
+                        <td className="px-4 py-2">
+                          <CategoryBadge category={s.category} />
+                        </td>
+                        <td className="px-4 py-2 text-right">{fmt(s.message_count)}</td>
+                        <td className="px-4 py-2 text-right text-muted">{fmt(s.unread_count)}</td>
+                        <td className="px-4 py-2 text-right">
+                          {s.junk_pct > 0 ? (
+                            <span className="text-danger">{s.junk_pct.toFixed(0)}%</span>
+                          ) : "—"}
+                        </td>
+                        <td className="px-4 py-2 text-muted text-xs">{fmtDate(s.last_seen)}</td>
+                      </tr>
+                    ))}
+                    {senders.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="px-4 py-6 text-center text-muted text-sm">
+                          No senders in this category.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
 
           {/* Mailboxes tab */}
           {activeTab === "mailboxes" && (
-            <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm shadow-shadow">
+            <div className="card overflow-hidden">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-muted">
@@ -335,7 +393,7 @@ export default function MailAnalyzerPage() {
           {/* Junk tab */}
           {activeTab === "junk" && junk && (
             <div className="space-y-6">
-              <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm shadow-shadow">
+              <div className="card overflow-hidden">
                 <div className="px-4 py-3 border-b border-border">
                   <h2 className="font-semibold">Top Junk senders</h2>
                 </div>
@@ -362,7 +420,7 @@ export default function MailAnalyzerPage() {
                 </table>
               </div>
 
-              <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm shadow-shadow">
+              <div className="card overflow-hidden">
                 <div className="px-4 py-3 border-b border-border">
                   <h2 className="font-semibold">Recent Junk subjects</h2>
                 </div>

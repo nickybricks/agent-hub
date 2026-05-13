@@ -1,12 +1,24 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/analyzer-db";
 
 export const dynamic = "force-dynamic";
 
-export function GET() {
+export function GET(req: NextRequest) {
   try {
     const db = getDb();
     const selfEmail = (process.env.IMAP_USER || "").toLowerCase();
+    const category = req.nextUrl.searchParams.get("category");
+
+    let categoryClause = "";
+    const params: unknown[] = [selfEmail];
+    if (category && category !== "all") {
+      if (category === "unclassified") {
+        categoryClause = "AND s.category IS NULL";
+      } else {
+        categoryClause = "AND s.category = ?";
+        params.push(category);
+      }
+    }
 
     const senders = db.prepare(`
       SELECT
@@ -22,10 +34,11 @@ export function GET() {
       JOIN mailboxes mb ON m.mailbox_id = mb.id
       LEFT JOIN senders s ON LOWER(m.sender_email) = s.email
       WHERE LOWER(m.sender_email) != ?
+        ${categoryClause}
       GROUP BY m.sender_email
       ORDER BY message_count DESC
       LIMIT 50
-    `).all(selfEmail);
+    `).all(...params);
 
     return NextResponse.json({ senders });
   } catch {

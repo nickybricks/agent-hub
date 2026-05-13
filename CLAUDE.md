@@ -68,14 +68,18 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ## Project: mail-workflow
 
-A Next.js 16 app (React 19, Tailwind 4, TypeScript) that fetches newsletters from Apple Mail via AppleScript, summarizes them with an LLM, and serves a digest UI.
+A Next.js 16 app (React 19, Tailwind 4, TypeScript) that fetches newsletters via IMAP, summarizes them with an LLM, and serves a digest UI.
 
 ### Architecture
 
 - **`src/agent/`** — standalone agent scripts run via `npx tsx` or launchd
-  - `fetch-emails.ts` — AppleScript bridge to Apple Mail (macOS only)
+  - `fetch-emails.ts` — newsletter fetcher (uses `createMailProvider()`, parses raw RFC822 via `mailparser`)
+  - `analyze-mailbox.ts` — full-mailbox scan into SQLite (`data/mail-analyzer.db`)
+  - `providers/imap.ts` — generic IMAP via `imapflow` (read-only: `list`, `status`, `fetch`, `search`)
+  - `providers/gmail.ts` — Gmail provider via `googleapis` (OAuth 2.0, labels as mailboxes, metadata-format fetches)
+  - `providers/outlook.ts` — Microsoft Graph provider (OAuth 2.0, mailFolders, `$value` for raw MIME)
   - `summarize.ts` — LangChain factory: builds the right `BaseChatModel` from config and invokes it
-  - `send-digest.ts` — sends email digest via AppleScript
+  - `send-digest.ts` — sends email digest via AppleScript (last remaining AppleScript holdout; macOS-only)
   - `run.ts` — orchestrates fetch → summarize → save → (optional) send; also the CLI entry point
 - **`src/app/api/`** — Next.js App Router route handlers (settings, runs, summaries, agent trigger)
 - **`src/lib/`** — shared types (`types.ts`), flat-file data helpers (`data.ts`), model constants (`models.ts`)
@@ -85,7 +89,9 @@ A Next.js 16 app (React 19, Tailwind 4, TypeScript) that fetches newsletters fro
 ### Key conventions
 
 - **LLM abstraction:** all provider switching goes through `createLLM()` in `summarize.ts`. New providers → add a `case` there and a model list in `src/lib/models.ts`. Don't add provider logic elsewhere.
+- **Mail provider abstraction:** all mail access goes through `createMailProvider()` in `src/lib/mail-provider.ts`. The factory reads `data/config.json` `mail.provider` (`imap` | `gmail` | `outlook`) and dynamically imports the matching `src/agent/providers/*.ts`. Don't talk to IMAP / Gmail API / Graph directly from consumers.
 - **API keys:** env vars take precedence over config (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`). Config `apiKey` is a fallback. Ollama needs no key.
+- **Mail credentials:** env vars override config for every provider — IMAP (`IMAP_HOST`/`IMAP_USER`/`IMAP_PASSWORD`/`IMAP_PORT`), Gmail (`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`/`GOOGLE_REFRESH_TOKEN`), Outlook (`MS_CLIENT_ID`/`MS_CLIENT_SECRET`/`MS_TENANT_ID`/`MS_REFRESH_TOKEN`). OAuth callbacks at `/api/auth/google/callback` and `/api/auth/microsoft/callback` append the refresh token to `.env.local` via `upsertEnvVars()`.
 - **Persistence:** flat JSON files, no database. `data/config.json` is the source of truth for agent settings. `data/summaries/` stores one file per day (array of `Summary`). `data/runs.json` keeps the last 50 runs.
 - **Types:** `NewsletterAgent`, `Email`, `Summary`, `AgentRun` are defined in `src/lib/types.ts`. Don't duplicate or inline them.
 - **No tests currently.** When adding features, manually verify via `npm run agent:run` and the dev UI at `http://localhost:3000`.
@@ -100,8 +106,11 @@ npm run lint         # ESLint
 
 ### Things to watch out for
 
-- `fetch-emails.ts` uses `execSync` + AppleScript — macOS only. Don't add Node.js email client alternatives unless asked.
-- The AppleScript writes a temp `.scpt` file and always cleans it up in `finally`. Keep that pattern.
+- `fetch-emails.ts` talks to mail via `createMailProvider()` (read-only). For IMAP, credentials come from `.env.local` (`IMAP_HOST`, `IMAP_PORT`, `IMAP_USER`, `IMAP_PASSWORD`). For Gmail/Outlook, the OAuth refresh token is stored in `.env.local` after the user runs the Connect flow on `/settings/mail`. Never `MOVE`/`STORE`/`EXPUNGE`/`CREATE` (or the Graph/Gmail write equivalents) from this layer until Phase 3.
+- **Provider quirks:**
+  - **Gmail** is label-based, not folder-based. The provider treats each Gmail label as a "mailbox". The system labels (`INBOX`, `SPAM`, `TRASH`, etc.) appear alongside user labels. Gmail's "All Mail" is its own label; a single message can appear in multiple "mailboxes". Threading is via `threadId` (not exposed yet). Rate limit: 250 quota units/user/sec — metadata fetches are 5 units each, so a 500-id chunk ≈ 2500 units; we batch in groups of 20 to stay well under.
+  - **Outlook** folders are hierarchical (`Inbox`, `Inbox/Subfolder`); the provider flattens them with `/`-joined paths. The closest analog to Gmail labels / IONOS folders is the `categories` field (not exposed yet). `internetMessageId` is the stable ID across providers and is what we store as `messages.id` in SQLite.
+- `send-digest.ts` still uses `execSync` + AppleScript and is therefore macOS-only. It writes a temp `.scpt` file and always cleans it up in `finally` — keep that pattern, or swap to SMTP via `nodemailer` if asked.
 - `data/config.json` is user data — never overwrite it with defaults or reset it without an explicit ask.
 - The UI config form saves partial settings via `PATCH /api/agents/[id]` — it deep-merges `settings`, so partial updates are safe.
 - Never fabricate or guess URLs in summaries — the system prompt already enforces this; don't weaken it.

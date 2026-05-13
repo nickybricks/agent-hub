@@ -90,7 +90,7 @@ export async function runNewsletterAgent(): Promise<AgentRun> {
       deliverEmail: boolean;
       deliverEmailTo: string;
     }): Promise<Summary> => {
-      console.log("🔍 Fetching newsletters from Apple Mail...");
+      console.log("🔍 Fetching newsletters via IMAP...");
       const emails = await fetchNewsletterEmails(
         input.senders,
         input.lookbackHours,
@@ -181,9 +181,15 @@ export async function runNewsletterAgent(): Promise<AgentRun> {
 // CLI entry point
 if (require.main === module) {
   runNewsletterAgent().then(async (run) => {
-    // Flush LangSmith traces before the process exits.
-    const { awaitAllCallbacks } = await import("@langchain/core/callbacks/promises");
-    await awaitAllCallbacks();
+    // Flush pending LangSmith trace batches before the process exits.
+    // awaitAllCallbacks() only covers LangChain callbacks, not langsmith/traceable spans.
+    // The root run's end event lands in the auto-batch queue (~250ms tick) just after
+    // tracedWork resolves, so a single flush can race with it — wait, then double-flush.
+    const { RunTree } = await import("langsmith/run_trees");
+    const client = RunTree.getSharedClient();
+    await client.awaitPendingTraceBatches();
+    await new Promise((r) => setTimeout(r, 500));
+    await client.awaitPendingTraceBatches();
     process.exit(run.status === "completed" ? 0 : 1);
   });
 }
