@@ -27,6 +27,12 @@ export interface RawMessage {
   isRead: boolean;
 }
 
+export interface MoveResult {
+  messageId: string;
+  ok: boolean;
+  error?: string;
+}
+
 export interface MailProvider {
   open(): Promise<void>;
   close(): Promise<void>;
@@ -43,6 +49,22 @@ export interface MailProvider {
     since: Date,
     limit: number
   ): Promise<RawMessage[]>;
+  /**
+   * Create a mailbox/folder/label at the given path. Hierarchical paths use "/"
+   * (e.g. "Newsletters/Tech"). Idempotent — succeeds if the destination already exists.
+   */
+  createMailbox(path: string): Promise<void>;
+  /**
+   * Move messages identified by their stable Message-ID (the `id` stored in SQLite)
+   * from one mailbox to another. Returns per-message status — partial failures do
+   * not throw. For Gmail, "move" means add the destination label and remove the
+   * source label.
+   */
+  moveMessages(
+    messageIds: string[],
+    fromMailbox: string,
+    toMailbox: string
+  ): Promise<MoveResult[]>;
 }
 
 export type MailProviderKind = "imap" | "gmail" | "outlook";

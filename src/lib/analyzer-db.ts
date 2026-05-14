@@ -96,6 +96,50 @@ function initSchema(db: Database.Database) {
       created_at TEXT NOT NULL,
       PRIMARY KEY (message_id, kind)
     );
+
+    CREATE TABLE IF NOT EXISTS proposed_folders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      path TEXT NOT NULL UNIQUE,
+      rationale TEXT,
+      status TEXT NOT NULL DEFAULT 'proposed',
+      created_at TEXT NOT NULL,
+      decided_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS folder_rules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      match_type TEXT NOT NULL,
+      match_value TEXT NOT NULL,
+      action TEXT NOT NULL,
+      target_folder TEXT,
+      status TEXT NOT NULL DEFAULT 'proposed',
+      source TEXT NOT NULL,
+      confidence REAL,
+      created_at TEXT NOT NULL,
+      decided_at TEXT,
+      last_applied_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_rules_match ON folder_rules(match_type, match_value);
+    CREATE INDEX IF NOT EXISTS idx_rules_status ON folder_rules(status);
+
+    CREATE TABLE IF NOT EXISTS move_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      message_id TEXT NOT NULL,
+      from_mailbox TEXT NOT NULL,
+      to_mailbox TEXT NOT NULL,
+      account TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      rule_id INTEGER REFERENCES folder_rules(id),
+      batch_id TEXT NOT NULL,
+      reason TEXT,
+      status TEXT NOT NULL,
+      applied_at TEXT NOT NULL,
+      undone_at TEXT,
+      error TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_movelog_batch ON move_log(batch_id);
+    CREATE INDEX IF NOT EXISTS idx_movelog_message ON move_log(message_id);
+    CREATE INDEX IF NOT EXISTS idx_movelog_status ON move_log(status);
   `);
 
   if (!columnExists(db, "messages", "headers_json")) {
@@ -428,4 +472,207 @@ export function failScanRun(id: number, error: string) {
   getDb().prepare(`
     UPDATE scan_runs SET finished_at = ?, status = 'error', error = ? WHERE id = ?
   `).run(new Date().toISOString(), error, id);
+}
+
+export type ProposedFolderStatus = "proposed" | "accepted" | "rejected" | "created";
+
+export interface ProposedFolder {
+  id: number;
+  path: string;
+  rationale: string | null;
+  status: ProposedFolderStatus;
+  created_at: string;
+  decided_at: string | null;
+}
+
+export function insertProposedFolders(items: { path: string; rationale?: string | null }[]) {
+  if (items.length === 0) return;
+  const db = getDb();
+  const now = new Date().toISOString();
+  const stmt = db.prepare(`
+    INSERT INTO proposed_folders (path, rationale, status, created_at)
+    VALUES (?, ?, 'proposed', ?)
+    ON CONFLICT(path) DO NOTHING
+  `);
+  const tx = db.transaction((rows: { path: string; rationale?: string | null }[]) => {
+    for (const r of rows) stmt.run(r.path, r.rationale ?? null, now);
+  });
+  tx(items);
+}
+
+export function listProposedFolders(status?: ProposedFolderStatus): ProposedFolder[] {
+  const db = getDb();
+  return (status
+    ? db.prepare(`SELECT * FROM proposed_folders WHERE status = ? ORDER BY path`).all(status)
+    : db.prepare(`SELECT * FROM proposed_folders ORDER BY path`).all()) as ProposedFolder[];
+}
+
+export function setProposedFolderStatus(id: number, status: ProposedFolderStatus) {
+  getDb().prepare(
+    `UPDATE proposed_folders SET status = ?, decided_at = ? WHERE id = ?`
+  ).run(status, new Date().toISOString(), id);
+}
+
+export type FolderRuleMatchType = "sender_email" | "sender_domain";
+export type FolderRuleAction = "route_to" | "never_spam" | "always_spam" | "leave";
+export type FolderRuleStatus = "proposed" | "accepted" | "rejected";
+export type FolderRuleSource = "llm_proposal" | "user" | "audit_finding";
+
+export interface FolderRule {
+  id: number;
+  match_type: FolderRuleMatchType;
+  match_value: string;
+  action: FolderRuleAction;
+  target_folder: string | null;
+  status: FolderRuleStatus;
+  source: FolderRuleSource;
+  confidence: number | null;
+  created_at: string;
+  decided_at: string | null;
+  last_applied_at: string | null;
+}
+
+export interface FolderRuleInput {
+  match_type: FolderRuleMatchType;
+  match_value: string;
+  action: FolderRuleAction;
+  target_folder?: string | null;
+  source: FolderRuleSource;
+  confidence?: number | null;
+  status?: FolderRuleStatus;
+}
+
+export function insertFolderRule(rule: FolderRuleInput): number {
+  const result = getDb().prepare(`
+    INSERT INTO folder_rules
+      (match_type, match_value, action, target_folder, status, source, confidence, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    rule.match_type,
+    rule.match_value.toLowerCase(),
+    rule.action,
+    rule.target_folder ?? null,
+    rule.status ?? "proposed",
+    rule.source,
+    rule.confidence ?? null,
+    new Date().toISOString()
+  );
+  return Number(result.lastInsertRowid);
+}
+
+export function listFolderRules(status?: FolderRuleStatus): FolderRule[] {
+  const db = getDb();
+  return (status
+    ? db.prepare(`SELECT * FROM folder_rules WHERE status = ? ORDER BY id DESC`).all(status)
+    : db.prepare(`SELECT * FROM folder_rules ORDER BY id DESC`).all()) as FolderRule[];
+}
+
+export function setFolderRuleStatus(id: number, status: FolderRuleStatus) {
+  getDb().prepare(
+    `UPDATE folder_rules SET status = ?, decided_at = ? WHERE id = ?`
+  ).run(status, new Date().toISOString(), id);
+}
+
+export function findRuleForSender(senderEmail: string): FolderRule | null {
+  const db = getDb();
+  const email = senderEmail.toLowerCase();
+  const domain = email.includes("@") ? email.split("@")[1] : email;
+  const row = db.prepare(`
+    SELECT * FROM folder_rules
+    WHERE status = 'accepted'
+      AND (
+        (match_type = 'sender_email' AND match_value = ?)
+        OR (match_type = 'sender_domain' AND match_value = ?)
+      )
+    ORDER BY CASE match_type WHEN 'sender_email' THEN 0 ELSE 1 END
+    LIMIT 1
+  `).get(email, domain) as FolderRule | undefined;
+  return row ?? null;
+}
+
+export function touchRuleApplied(id: number) {
+  getDb().prepare(`UPDATE folder_rules SET last_applied_at = ? WHERE id = ?`)
+    .run(new Date().toISOString(), id);
+}
+
+export type MoveStatus = "applied" | "undone" | "failed";
+
+export interface MoveLogEntry {
+  id: number;
+  message_id: string;
+  from_mailbox: string;
+  to_mailbox: string;
+  account: string;
+  provider: string;
+  rule_id: number | null;
+  batch_id: string;
+  reason: string | null;
+  status: MoveStatus;
+  applied_at: string;
+  undone_at: string | null;
+  error: string | null;
+}
+
+export interface MoveLogInput {
+  message_id: string;
+  from_mailbox: string;
+  to_mailbox: string;
+  account: string;
+  provider: string;
+  rule_id?: number | null;
+  batch_id: string;
+  reason?: string | null;
+  status: MoveStatus;
+  error?: string | null;
+}
+
+export function logMoves(entries: MoveLogInput[]) {
+  if (entries.length === 0) return;
+  const db = getDb();
+  const now = new Date().toISOString();
+  const stmt = db.prepare(`
+    INSERT INTO move_log
+      (message_id, from_mailbox, to_mailbox, account, provider, rule_id, batch_id, reason, status, applied_at, error)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const tx = db.transaction((rows: MoveLogInput[]) => {
+    for (const r of rows) {
+      stmt.run(
+        r.message_id,
+        r.from_mailbox,
+        r.to_mailbox,
+        r.account,
+        r.provider,
+        r.rule_id ?? null,
+        r.batch_id,
+        r.reason ?? null,
+        r.status,
+        now,
+        r.error ?? null
+      );
+    }
+  });
+  tx(entries);
+}
+
+export function getMovesByBatch(batchId: string): MoveLogEntry[] {
+  return getDb().prepare(
+    `SELECT * FROM move_log WHERE batch_id = ? ORDER BY id`
+  ).all(batchId) as MoveLogEntry[];
+}
+
+export function listRecentMoves(limit = 100): MoveLogEntry[] {
+  return getDb().prepare(
+    `SELECT * FROM move_log ORDER BY id DESC LIMIT ?`
+  ).all(limit) as MoveLogEntry[];
+}
+
+export function markMovesUndone(ids: number[]) {
+  if (ids.length === 0) return;
+  const db = getDb();
+  const now = new Date().toISOString();
+  const placeholders = ids.map(() => "?").join(",");
+  db.prepare(
+    `UPDATE move_log SET status = 'undone', undone_at = ? WHERE id IN (${placeholders})`
+  ).run(now, ...ids);
 }

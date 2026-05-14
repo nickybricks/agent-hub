@@ -29,7 +29,7 @@ export async function GET(request: Request) {
         client_secret: clientSecret,
         redirect_uri: redirectUri,
         grant_type: "authorization_code",
-        scope: "offline_access https://graph.microsoft.com/Mail.Read",
+        scope: "offline_access https://graph.microsoft.com/Mail.ReadWrite",
       }),
     }
   );
