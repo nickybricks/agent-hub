@@ -10,6 +10,7 @@ import {
   SENDER_CATEGORIES,
   UnclassifiedSender,
 } from "../lib/analyzer-db";
+import { withGuardrail, wrapEmail, sanitizeSubject } from "../lib/prompt-safety";
 
 const BATCH_SIZE = 20;
 
@@ -38,18 +39,20 @@ function loadLLMConfig(): LLMConfig {
   const cfg = JSON.parse(readFileSync(join(process.cwd(), "data", "config.json"), "utf-8"));
   const agent = cfg.agents.find((a: { id: string }) => a.id === "newsletter-summarizer");
   if (!agent?.settings?.llm) throw new Error("No LLM config found in data/config.json");
-  return { ...agent.settings.llm, systemPrompt: SYSTEM_PROMPT } as LLMConfig;
+  return { ...agent.settings.llm, systemPrompt: withGuardrail(SYSTEM_PROMPT) } as LLMConfig;
 }
 
 function renderSender(s: UnclassifiedSender): string {
-  const subjects = s.sample_subjects.length
-    ? s.sample_subjects.map((x) => `    - "${x}"`).join("\n")
+  const cleanSubjects = s.sample_subjects.map(sanitizeSubject).filter(Boolean);
+  const subjects = cleanSubjects.length
+    ? cleanSubjects.map((x) => `    - "${x}"`).join("\n")
     : "    (no subjects available)";
-  return `- email: ${s.email}
+  const body = `- email: ${s.email}
   domain: ${s.domain}
   name: ${s.display_name ?? "(none)"}
   recent subjects:
 ${subjects}`;
+  return wrapEmail(body);
 }
 
 async function _classifyBatch(
@@ -68,7 +71,7 @@ async function _classifyBatch(
   return map;
 }
 
-const classifyBatch = traceable(_classifyBatch, {
+export const classifyBatch = traceable(_classifyBatch, {
   name: "classify-sender-batch",
   run_type: "chain",
 });
@@ -159,13 +162,15 @@ async function flushLangSmith() {
   }
 }
 
-main()
-  .then(async () => {
-    await flushLangSmith();
-    process.exit(0);
-  })
-  .catch(async (err) => {
-    console.error(err);
-    await flushLangSmith();
-    process.exit(1);
-  });
+if (require.main === module) {
+  main()
+    .then(async () => {
+      await flushLangSmith();
+      process.exit(0);
+    })
+    .catch(async (err) => {
+      console.error(err);
+      await flushLangSmith();
+      process.exit(1);
+    });
+}

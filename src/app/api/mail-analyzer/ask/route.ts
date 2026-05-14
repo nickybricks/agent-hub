@@ -5,6 +5,8 @@ import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { traceable } from "langsmith/traceable";
 import { createLLM, LLMConfig } from "@/agent/summarize";
 import { getDb, listMemories, touchMemoryUsed, AgentMemory } from "@/lib/analyzer-db";
+import { withGuardrail, wrapEmail } from "@/lib/prompt-safety";
+import { checkRateLimit, ipFromRequest } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -21,7 +23,7 @@ function loadLLMConfig(): LLMConfig {
   const cfg = JSON.parse(readFileSync(join(process.cwd(), "data", "config.json"), "utf-8"));
   const agent = cfg.agents?.find((a: { id: string }) => a.id === "newsletter-summarizer");
   if (!agent?.settings?.llm) throw new Error("No LLM config in data/config.json");
-  return { ...agent.settings.llm, systemPrompt: SYSTEM_PROMPT } as LLMConfig;
+  return { ...agent.settings.llm, systemPrompt: withGuardrail(SYSTEM_PROMPT) } as LLMConfig;
 }
 
 function renderMemory(m: AgentMemory): string {
@@ -185,10 +187,10 @@ const buildPrompt = traceable(
       ? input.memories.map(renderMemory).join("\n")
       : "(no memories recorded yet)";
     return `STATS:
-${renderStats(input.stats)}
+${wrapEmail(renderStats(input.stats))}
 
 MEMORIES (most recent first):
-${memoryBlock}
+${wrapEmail(memoryBlock)}
 
 QUESTION: ${input.question}`;
   },
@@ -229,6 +231,14 @@ async function runAsk(question: string): Promise<{ answer: string; cited: AgentM
 }
 
 export async function POST(req: Request) {
+  const rl = checkRateLimit(`ask:${ipFromRequest(req)}`, 10, 60);
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Too many requests", retryAfter: rl.retryAfterSeconds },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSeconds) } },
+    );
+  }
+
   const body = (await req.json().catch(() => null)) as { question?: string } | null;
   const question = body?.question?.trim();
   if (!question) return NextResponse.json({ error: "question required" }, { status: 400 });

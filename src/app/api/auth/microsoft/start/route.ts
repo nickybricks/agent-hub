@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { readMailConfig } from "@/lib/mail-provider";
+import { createPkcePair, attachPkceCookie } from "@/lib/oauth-pkce";
 
 export async function GET(request: Request) {
   const cfg = readMailConfig();
@@ -13,6 +14,7 @@ export async function GET(request: Request) {
   }
   const origin = new URL(request.url).origin;
   const redirectUri = `${origin}/api/auth/microsoft/callback`;
+  const { state, codeVerifier, codeChallenge } = createPkcePair();
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
@@ -20,8 +22,13 @@ export async function GET(request: Request) {
     response_mode: "query",
     scope: "offline_access https://graph.microsoft.com/Mail.ReadWrite",
     prompt: "consent",
+    state,
+    code_challenge: codeChallenge,
+    code_challenge_method: "S256",
   });
-  return NextResponse.redirect(
+  const response = NextResponse.redirect(
     `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?${params}`
   );
+  attachPkceCookie(response, state, codeVerifier);
+  return response;
 }

@@ -66,7 +66,7 @@ function parseAuthResults(auth: string | undefined): AuthResults {
   return out;
 }
 
-function loadAllMessages(): MsgRow[] {
+export function loadAllMessages(): MsgRow[] {
   return getDb().prepare(`
     SELECT m.id, m.sender_email, m.sender_name, m.subject, m.date_received,
            m.is_read, m.size_bytes, m.mailbox_id, m.headers_json,
@@ -79,7 +79,7 @@ function loadAllMessages(): MsgRow[] {
   `).all(selfEmail()) as MsgRow[];
 }
 
-interface SenderAgg {
+export interface SenderAgg {
   email: string;
   category: string | null;
   total: number;
@@ -99,7 +99,7 @@ interface SenderAgg {
   dmarcPassInSpam: number;
 }
 
-function aggregate(rows: MsgRow[]): Map<string, SenderAgg> {
+export function aggregate(rows: MsgRow[]): Map<string, SenderAgg> {
   const map = new Map<string, SenderAgg>();
   for (const r of rows) {
     const email = r.sender_email.toLowerCase();
@@ -225,7 +225,7 @@ const TWO_PART_TLDS = new Set([
   "com.eg", "co.in", "co.id", "com.my", "co.th", "com.ph", "com.ua", "co.at",
 ]);
 
-function registrableDomain(domain: string): string {
+export function registrableDomain(domain: string): string {
   const parts = domain.split(".");
   if (parts.length < 2) return domain;
   const lastTwo = parts.slice(-2).join(".");
@@ -239,7 +239,7 @@ function registrableBase(domain: string): string {
   return registrableDomain(domain).split(".")[0];
 }
 
-function tokenize(s: string): string[] {
+export function tokenize(s: string): string[] {
   return s.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
 }
 
@@ -347,7 +347,7 @@ function hasDmarcFailure(s: SenderAgg): boolean {
   return s.dmarcSeen >= 1 && s.dmarcFail / s.dmarcSeen >= 0.5;
 }
 
-function scorePhishingRisk(s: SenderAgg): { score: number; reasons: string[] } | null {
+export function scorePhishingRisk(s: SenderAgg, threshold = 0.5): { score: number; reasons: string[] } | null {
   if (domainIsTrusted(domainOf(s.email))) return null;
   // DMARC-passing senders with history are the same domain owner the From: claims.
   // Unless they spoof a brand in the display name, they're authentic.
@@ -394,7 +394,7 @@ function scorePhishingRisk(s: SenderAgg): { score: number; reasons: string[] } |
   }
 
   const score = primary + secondary;
-  if (score < 0.5) return null;
+  if (score < threshold) return null;
   return { score: Math.min(1, score), reasons };
 }
 

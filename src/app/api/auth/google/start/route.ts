@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { readMailConfig } from "@/lib/mail-provider";
+import { createPkcePair, attachPkceCookie } from "@/lib/oauth-pkce";
 
 export async function GET(request: Request) {
   const cfg = readMailConfig();
@@ -12,6 +13,7 @@ export async function GET(request: Request) {
   }
   const origin = new URL(request.url).origin;
   const redirectUri = `${origin}/api/auth/google/callback`;
+  const { state, codeVerifier, codeChallenge } = createPkcePair();
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
@@ -21,6 +23,11 @@ export async function GET(request: Request) {
     // gmail.modify covers read + label create + message label modify (move).
     // It does NOT allow permanent deletion (which would need gmail.full).
     scope: "https://www.googleapis.com/auth/gmail.modify",
+    state,
+    code_challenge: codeChallenge,
+    code_challenge_method: "S256",
   });
-  return NextResponse.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
+  const response = NextResponse.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
+  attachPkceCookie(response, state, codeVerifier);
+  return response;
 }
