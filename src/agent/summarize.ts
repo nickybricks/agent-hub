@@ -8,6 +8,7 @@ import { traceable } from "langsmith/traceable";
 import { z } from "zod";
 import { Email, Summary } from "../lib/types";
 import { randomUUID } from "crypto";
+import { withGuardrail, wrapEmail, sanitizeSubject } from "../lib/prompt-safety";
 
 const DigestSchema = z.object({
   title: z.string().describe("Short headline summarizing today's digest (no leading '#')"),
@@ -151,7 +152,7 @@ async function _summarizeNewsletters(
         e.images.length > 0
           ? `\nImages (the body contains [IMAGE_N] markers showing where each appeared; include them as ![alt](url) in the topic where they fit):\n${e.images.map((img) => `  - ${img.id}${img.alt ? ` (alt: "${img.alt}")` : ""} -> ${img.url}`).join("\n")}\n`
           : "";
-      return `--- Newsletter ${i + 1} ---\nFrom: ${e.sender}\nSubject: ${e.subject}\nDate: ${e.date}\n\n${e.body}${linksSection}${imagesSection}`;
+      return wrapEmail(`--- Newsletter ${i + 1} ---\nFrom: ${e.sender}\nSubject: ${sanitizeSubject(e.subject)}\nDate: ${e.date}\n\n${e.body}${linksSection}${imagesSection}`);
     })
     .join("\n\n");
 
@@ -162,7 +163,7 @@ async function _summarizeNewsletters(
     name: "newsletter_digest",
   });
   const structured = await structuredLLM.invoke(
-    [new SystemMessage(llmConfig.systemPrompt), new HumanMessage(userMessage)],
+    [new SystemMessage(withGuardrail(llmConfig.systemPrompt)), new HumanMessage(userMessage)],
     {
       runName: "llm-invoke",
       tags: [llmConfig.provider, llmConfig.model, `style:${style}`],

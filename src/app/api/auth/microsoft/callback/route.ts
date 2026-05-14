@@ -1,13 +1,20 @@
 import { NextResponse } from "next/server";
 import { readMailConfig } from "@/lib/mail-provider";
 import { upsertEnvVars } from "@/lib/env-file";
+import { readPkceCookie, clearPkceCookie } from "@/lib/oauth-pkce";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
   const error = url.searchParams.get("error");
+  const stateFromQuery = url.searchParams.get("state");
   if (error) return NextResponse.json({ error }, { status: 400 });
   if (!code) return NextResponse.json({ error: "Missing code" }, { status: 400 });
+
+  const pkce = await readPkceCookie();
+  if (!pkce || !stateFromQuery || pkce.state !== stateFromQuery) {
+    return NextResponse.json({ error: "Invalid OAuth state" }, { status: 400 });
+  }
 
   const cfg = readMailConfig();
   const clientId = process.env.MS_CLIENT_ID ?? cfg.outlook?.clientId;
@@ -30,6 +37,7 @@ export async function GET(request: Request) {
         redirect_uri: redirectUri,
         grant_type: "authorization_code",
         scope: "offline_access https://graph.microsoft.com/Mail.ReadWrite",
+        code_verifier: pkce.codeVerifier,
       }),
     }
   );
@@ -43,5 +51,7 @@ export async function GET(request: Request) {
 
   upsertEnvVars({ MS_REFRESH_TOKEN: tokens.refresh_token });
 
-  return NextResponse.redirect(`${url.origin}/settings/mail?connected=outlook`);
+  const response = NextResponse.redirect(`${url.origin}/settings/mail?connected=outlook`);
+  clearPkceCookie(response);
+  return response;
 }

@@ -14,6 +14,7 @@ import {
   SenderForProposal,
   writeMemory,
 } from "../lib/analyzer-db";
+import { withGuardrail, wrapEmail } from "../lib/prompt-safety";
 
 const ProposalSchema = z.object({
   folders: z
@@ -61,12 +62,12 @@ function loadLLMConfig(): LLMConfig {
     ...agent.settings.llm,
     provider: DEFAULT_PROVIDER,
     model: DEFAULT_MODEL,
-    systemPrompt: SYSTEM_PROMPT,
+    systemPrompt: withGuardrail(SYSTEM_PROMPT),
   } as LLMConfig;
 }
 
 function renderSender(s: SenderForProposal): string {
-  return `- ${s.email} (${s.domain}) — ${s.category ?? "unclassified"} — ${s.message_count} msgs — ${s.display_name ?? ""}`;
+  return wrapEmail(`- ${s.email} (${s.domain}) — ${s.category ?? "unclassified"} — ${s.message_count} msgs — ${s.display_name ?? ""}`);
 }
 
 async function main() {
@@ -154,7 +155,7 @@ async function main() {
 - ${existingMailboxes.length} existing folders
 
 Current folder structure (with message counts and top senders) — keep, rename, split, merge, or replace as you see fit:
-${folderContext}
+${wrapEmail(folderContext)}
 
 Sender category distribution (from prior LLM classification):
 ${catContext}

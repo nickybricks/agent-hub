@@ -1,6 +1,6 @@
 {
   "name": "mail-workflow",
-  "version": "0.6.0",
+  "version": "0.8.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -14,7 +14,9 @@
     "mail:classify": "npx tsx --env-file=.env.local src/agent/classify-senders.ts",
     "mail:audit": "npx tsx --env-file=.env.local src/agent/audit.ts",
     "mail:propose-structure": "npx tsx --env-file=.env.local src/agent/propose-structure.ts",
-    "mail:schedule:install": "bash scripts/install-mail-analyzer-schedule.sh"
+    "mail:schedule:install": "bash scripts/install-mail-analyzer-schedule.sh",
+    "test": "node --test --import tsx 'src/**/__tests__/*.test.ts'",
+    "eval:injection": "npx tsx --env-file=.env.local scripts/eval-injection.ts"
   },
   "dependencies": {
     "@langchain/anthropic": "^1.3.26",
