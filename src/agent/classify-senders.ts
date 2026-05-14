@@ -1,6 +1,7 @@
 import { readFileSync } from "fs";
 import { join } from "path";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { traceable } from "langsmith/traceable";
 import { z } from "zod";
 import { createLLM, LLMConfig } from "./summarize";
 import {
@@ -51,7 +52,7 @@ function renderSender(s: UnclassifiedSender): string {
 ${subjects}`;
 }
 
-async function classifyBatch(
+async function _classifyBatch(
   llm: ReturnType<typeof createLLM>,
   systemPrompt: string,
   batch: UnclassifiedSender[],
@@ -66,6 +67,11 @@ async function classifyBatch(
   for (const r of out.results) map.set(r.email.toLowerCase(), r.category);
   return map;
 }
+
+const classifyBatch = traceable(_classifyBatch, {
+  name: "classify-sender-batch",
+  run_type: "chain",
+});
 
 async function main() {
   const args = process.argv.slice(2);
@@ -122,12 +128,44 @@ async function main() {
   }
 
   console.log(`Running ${concurrency} concurrent workers over ${batches.length} batches.`);
-  await Promise.all(Array.from({ length: concurrency }, worker));
+  const tracedRun = traceable(
+    async () => Promise.all(Array.from({ length: concurrency }, worker)),
+    {
+      name: "classify-senders",
+      run_type: "chain",
+      metadata: {
+        provider: config.provider,
+        model: config.model,
+        sender_count: senders.length,
+        batch_count: batches.length,
+        concurrency,
+      },
+    }
+  );
+  await tracedRun();
 
   console.log(`\nDone. Classified ${done} senders (${errors} batch error(s)).`);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+async function flushLangSmith() {
+  try {
+    const { RunTree } = await import("langsmith/run_trees");
+    const client = RunTree.getSharedClient();
+    await client.awaitPendingTraceBatches();
+    await new Promise((r) => setTimeout(r, 500));
+    await client.awaitPendingTraceBatches();
+  } catch {
+    // LangSmith not configured — no-op.
+  }
+}
+
+main()
+  .then(async () => {
+    await flushLangSmith();
+    process.exit(0);
+  })
+  .catch(async (err) => {
+    console.error(err);
+    await flushLangSmith();
+    process.exit(1);
+  });

@@ -13,6 +13,7 @@
     "mail:analyze": "npx tsx --env-file=.env.local src/agent/analyze-mailbox.ts",
     "mail:classify": "npx tsx --env-file=.env.local src/agent/classify-senders.ts",
     "mail:audit": "npx tsx --env-file=.env.local src/agent/audit.ts",
+    "mail:propose-structure": "npx tsx --env-file=.env.local src/agent/propose-structure.ts",
     "mail:schedule:install": "bash scripts/install-mail-analyzer-schedule.sh"
   },
   "dependencies": {
