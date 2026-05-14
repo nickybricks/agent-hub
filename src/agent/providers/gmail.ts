@@ -4,6 +4,7 @@ import type {
   MailProvider,
   MailboxInfo,
   MailMessage,
+  MoveResult,
   RawMessage,
 } from "../../lib/mail-provider";
 
@@ -175,6 +176,65 @@ export class GmailProvider implements MailProvider {
 
     flush();
     return total;
+  }
+
+  async createMailbox(path: string): Promise<void> {
+    const gmail = this.gmail();
+    // Gmail label names can contain "/" natively — labels are flat, "/" is just
+    // a UI nesting hint. Idempotent: skip if a label with this name already exists.
+    const existing = await gmail.users.labels.list({ userId: "me" });
+    if (existing.data.labels?.some((l) => l.name === path)) return;
+    await gmail.users.labels.create({
+      userId: "me",
+      requestBody: {
+        name: path,
+        labelListVisibility: "labelShow",
+        messageListVisibility: "show",
+      },
+    });
+  }
+
+  async moveMessages(
+    messageIds: string[],
+    fromMailbox: string,
+    toMailbox: string
+  ): Promise<MoveResult[]> {
+    if (messageIds.length === 0) return [];
+    const gmail = this.gmail();
+    const [fromId, toId] = await Promise.all([
+      this.labelIdByName(fromMailbox),
+      this.labelIdByName(toMailbox),
+    ]);
+    const results: MoveResult[] = [];
+    for (const id of messageIds) {
+      try {
+        // Look up Gmail message id from RFC822 Message-ID.
+        const stripped = id.replace(/^<|>$/g, "");
+        const search = await gmail.users.messages.list({
+          userId: "me",
+          q: `rfc822msgid:${stripped}`,
+          maxResults: 1,
+        });
+        const gmailMsgId = search.data.messages?.[0]?.id;
+        if (!gmailMsgId) {
+          results.push({ messageId: id, ok: false, error: "not found via rfc822msgid" });
+          continue;
+        }
+        await gmail.users.messages.modify({
+          userId: "me",
+          id: gmailMsgId,
+          requestBody: { addLabelIds: [toId], removeLabelIds: [fromId] },
+        });
+        results.push({ messageId: id, ok: true });
+      } catch (err) {
+        results.push({
+          messageId: id,
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    return results;
   }
 
   async fetchRawBySender(

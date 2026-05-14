@@ -3,6 +3,7 @@ import type {
   MailProvider,
   MailboxInfo,
   MailMessage,
+  MoveResult,
   RawMessage,
 } from "../../lib/mail-provider";
 
@@ -190,6 +191,54 @@ export class ImapProvider implements MailProvider {
     } finally {
       lock.release();
     }
+  }
+
+  async createMailbox(path: string): Promise<void> {
+    const client = await this.getClient();
+    // Walk path segments so parent folders exist first. Ignore "already exists" errors.
+    const segments = path.split("/").filter((s) => s.length > 0);
+    for (let i = 1; i <= segments.length; i++) {
+      const prefix = segments.slice(0, i).join("/");
+      try {
+        await client.mailboxCreate(prefix);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!/exists|already/i.test(msg)) throw err;
+      }
+    }
+  }
+
+  async moveMessages(
+    messageIds: string[],
+    fromMailbox: string,
+    toMailbox: string
+  ): Promise<MoveResult[]> {
+    if (messageIds.length === 0) return [];
+    const client = await this.getClient();
+    const results: MoveResult[] = [];
+    const lock = await client.getMailboxLock(fromMailbox);
+    try {
+      for (const id of messageIds) {
+        try {
+          const uids = await client.search({ header: { "message-id": id } }, { uid: true });
+          if (!uids || uids.length === 0) {
+            results.push({ messageId: id, ok: false, error: "not found in source mailbox" });
+            continue;
+          }
+          await client.messageMove(uids, toMailbox, { uid: true });
+          results.push({ messageId: id, ok: true });
+        } catch (err) {
+          results.push({
+            messageId: id,
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    } finally {
+      lock.release();
+    }
+    return results;
   }
 
   async fetchRawBySender(

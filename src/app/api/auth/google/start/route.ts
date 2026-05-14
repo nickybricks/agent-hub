@@ -18,7 +18,9 @@ export async function GET(request: Request) {
     response_type: "code",
     access_type: "offline",
     prompt: "consent",
-    scope: "https://www.googleapis.com/auth/gmail.readonly",
+    // gmail.modify covers read + label create + message label modify (move).
+    // It does NOT allow permanent deletion (which would need gmail.full).
+    scope: "https://www.googleapis.com/auth/gmail.modify",
   });
   return NextResponse.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
 }

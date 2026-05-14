@@ -18,7 +18,7 @@ export async function GET(request: Request) {
     redirect_uri: redirectUri,
     response_type: "code",
     response_mode: "query",
-    scope: "offline_access https://graph.microsoft.com/Mail.Read",
+    scope: "offline_access https://graph.microsoft.com/Mail.ReadWrite",
     prompt: "consent",
   });
   return NextResponse.redirect(

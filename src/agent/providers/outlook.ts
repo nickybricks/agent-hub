@@ -2,6 +2,7 @@ import type {
   MailProvider,
   MailboxInfo,
   MailMessage,
+  MoveResult,
   RawMessage,
 } from "../../lib/mail-provider";
 
@@ -71,7 +72,7 @@ export class OutlookProvider implements MailProvider {
       client_secret: clientSecret,
       grant_type: "refresh_token",
       refresh_token: refreshToken,
-      scope: "https://graph.microsoft.com/Mail.Read offline_access",
+      scope: "https://graph.microsoft.com/Mail.ReadWrite offline_access",
     });
     const res = await fetch(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
       method: "POST",
@@ -100,6 +101,29 @@ export class OutlookProvider implements MailProvider {
     if (!res.ok) {
       throw new Error(`Graph ${path} failed: ${res.status} ${await res.text()}`);
     }
+    return (await res.json()) as T;
+  }
+
+  private async graphJson<T>(
+    method: "POST" | "PATCH" | "DELETE",
+    path: string,
+    body?: unknown
+  ): Promise<T> {
+    const token = await this.ensureToken();
+    const url = `https://graph.microsoft.com/v1.0${path}`;
+    const res = await fetch(url, {
+      method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    if (!res.ok) {
+      throw new Error(`Graph ${method} ${path} failed: ${res.status} ${await res.text()}`);
+    }
+    // 204 No Content is valid for some endpoints.
+    if (res.status === 204) return undefined as T;
     return (await res.json()) as T;
   }
 
@@ -213,6 +237,79 @@ export class OutlookProvider implements MailProvider {
     }
     flush();
     return total;
+  }
+
+  async createMailbox(path: string): Promise<void> {
+    const segments = path.split("/").filter((s) => s.length > 0);
+    if (segments.length === 0) return;
+    const all = await this.listAllFolders();
+    const pathOf = async (f: MailFolder) => this.folderPath(f, all);
+
+    // Walk segments, creating each missing level. Track the parent's id as we go.
+    let parentId: string | null = null;
+    for (let i = 0; i < segments.length; i++) {
+      const prefix = segments.slice(0, i + 1).join("/");
+      let match: MailFolder | undefined;
+      for (const f of all) {
+        if ((await pathOf(f)) === prefix) {
+          match = f;
+          break;
+        }
+      }
+      if (match) {
+        parentId = match.id;
+        continue;
+      }
+      // Create under parent (or top-level if parentId is null).
+      const created: MailFolder = await this.graphJson<MailFolder>(
+        "POST",
+        parentId ? `/me/mailFolders/${parentId}/childFolders` : `/me/mailFolders`,
+        { displayName: segments[i] }
+      );
+      // Splice into our local list so subsequent path lookups see it.
+      all.push({
+        id: created.id,
+        displayName: created.displayName,
+        parentFolderId: parentId ?? undefined,
+      });
+      parentId = created.id;
+    }
+  }
+
+  async moveMessages(
+    messageIds: string[],
+    _fromMailbox: string,
+    toMailbox: string
+  ): Promise<MoveResult[]> {
+    if (messageIds.length === 0) return [];
+    const destId = await this.folderIdByPath(toMailbox);
+    const results: MoveResult[] = [];
+    for (const id of messageIds) {
+      try {
+        const escaped = id.replace(/'/g, "''");
+        const search = await this.graph<{ value: GraphMessage[] }>(
+          `/me/messages?$select=id&$top=1&$filter=${encodeURIComponent(
+            `internetMessageId eq '${escaped}'`
+          )}`
+        );
+        const graphId = search.value[0]?.id;
+        if (!graphId) {
+          results.push({ messageId: id, ok: false, error: "not found via internetMessageId" });
+          continue;
+        }
+        await this.graphJson("POST", `/me/messages/${graphId}/move`, {
+          destinationId: destId,
+        });
+        results.push({ messageId: id, ok: true });
+      } catch (err) {
+        results.push({
+          messageId: id,
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    return results;
   }
 
   async fetchRawBySender(
