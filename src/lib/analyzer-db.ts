@@ -140,6 +140,19 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_movelog_batch ON move_log(batch_id);
     CREATE INDEX IF NOT EXISTS idx_movelog_message ON move_log(message_id);
     CREATE INDEX IF NOT EXISTS idx_movelog_status ON move_log(status);
+
+    CREATE TABLE IF NOT EXISTS agent_memory (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind TEXT NOT NULL,
+      key TEXT,
+      content TEXT NOT NULL,
+      source TEXT NOT NULL,
+      confidence REAL,
+      created_at TEXT NOT NULL,
+      last_used_at TEXT,
+      superseded_by INTEGER REFERENCES agent_memory(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_memory_kind_key ON agent_memory(kind, key);
   `);
 
   if (!columnExists(db, "messages", "headers_json")) {
@@ -665,6 +678,196 @@ export function listRecentMoves(limit = 100): MoveLogEntry[] {
   return getDb().prepare(
     `SELECT * FROM move_log ORDER BY id DESC LIMIT ?`
   ).all(limit) as MoveLogEntry[];
+}
+
+export interface SenderForProposal {
+  email: string;
+  domain: string;
+  display_name: string | null;
+  category: string | null;
+  message_count: number;
+  sample_subjects: string[];
+}
+
+export function getSendersForProposal(minMessages = 5, limit = 250): SenderForProposal[] {
+  const db = getDb();
+  const selfEmail = (process.env.IMAP_USER || "").toLowerCase();
+  // Exclude senders whose mail mostly lives in Spam/Junk — they shouldn't get routing rules.
+  // The audit page handles spam-recovery for false positives separately.
+  const rows = db.prepare(`
+    SELECT s.email, s.domain, s.display_name, s.category,
+           COUNT(m.id) AS message_count,
+           SUM(CASE WHEN LOWER(mb.name) LIKE '%spam%' OR LOWER(mb.name) LIKE '%junk%' THEN 1 ELSE 0 END) AS spam_count
+    FROM senders s
+    JOIN messages m ON LOWER(m.sender_email) = s.email
+    JOIN mailboxes mb ON m.mailbox_id = mb.id
+    WHERE s.email != ?
+    GROUP BY s.email
+    HAVING message_count >= ?
+       AND (spam_count * 1.0 / message_count) < 0.5
+    ORDER BY message_count DESC
+    LIMIT ?
+  `).all(selfEmail, minMessages, limit) as Array<{
+    email: string;
+    domain: string;
+    display_name: string | null;
+    category: string | null;
+    message_count: number;
+    spam_count: number;
+  }>;
+
+  const subjectStmt = db.prepare(`
+    SELECT subject FROM messages
+    WHERE LOWER(sender_email) = ? AND subject IS NOT NULL AND subject != ''
+    ORDER BY date_received DESC
+    LIMIT 2
+  `);
+  return rows.map((r) => ({
+    email: r.email,
+    domain: r.domain,
+    display_name: r.display_name,
+    category: r.category,
+    message_count: r.message_count,
+    sample_subjects: (subjectStmt.all(r.email) as { subject: string }[]).map((s) => s.subject),
+  }));
+}
+
+export interface ProposalWithRules {
+  folder: ProposedFolder;
+  rules: FolderRule[];
+}
+
+export function getProposalsWithRules(): ProposalWithRules[] {
+  const db = getDb();
+  const folders = db.prepare(`SELECT * FROM proposed_folders ORDER BY path`).all() as ProposedFolder[];
+  const rules = db.prepare(`SELECT * FROM folder_rules WHERE source = 'llm_proposal' ORDER BY id`).all() as FolderRule[];
+  const byTarget = new Map<string, FolderRule[]>();
+  for (const r of rules) {
+    if (!r.target_folder) continue;
+    const arr = byTarget.get(r.target_folder) ?? [];
+    arr.push(r);
+    byTarget.set(r.target_folder, arr);
+  }
+  return folders.map((folder) => ({ folder, rules: byTarget.get(folder.path) ?? [] }));
+}
+
+export function getFolderRule(id: number): FolderRule | null {
+  const row = getDb().prepare(`SELECT * FROM folder_rules WHERE id = ?`).get(id) as FolderRule | undefined;
+  return row ?? null;
+}
+
+export function getProposedFolderByPath(path: string): ProposedFolder | null {
+  const row = getDb().prepare(`SELECT * FROM proposed_folders WHERE path = ?`).get(path) as ProposedFolder | undefined;
+  return row ?? null;
+}
+
+export function updateFolderRuleMatch(id: number, match_value: string, target_folder: string | null) {
+  getDb().prepare(
+    `UPDATE folder_rules SET match_value = ?, target_folder = ? WHERE id = ?`
+  ).run(match_value.toLowerCase(), target_folder, id);
+}
+
+export function updateProposedFolderPath(id: number, path: string) {
+  getDb().prepare(`UPDATE proposed_folders SET path = ? WHERE id = ?`).run(path, id);
+}
+
+export interface RuleMatchMessage {
+  id: string;
+  subject: string | null;
+  date_received: string;
+  sender_email: string;
+  mailbox_id: number;
+  mailbox_name: string;
+}
+
+export function getMessagesMatchingRule(rule: FolderRule): RuleMatchMessage[] {
+  const db = getDb();
+  const targetName = rule.target_folder ?? "";
+  // Exclude messages already in the target folder and any messages that have been moved (logged).
+  if (rule.match_type === "sender_email") {
+    return db.prepare(`
+      SELECT m.id, m.subject, m.date_received, m.sender_email, m.mailbox_id, mb.name AS mailbox_name
+      FROM messages m
+      JOIN mailboxes mb ON m.mailbox_id = mb.id
+      WHERE LOWER(m.sender_email) = ?
+        AND mb.name != ?
+        AND NOT EXISTS (SELECT 1 FROM move_log ml WHERE ml.message_id = m.id AND ml.status = 'applied')
+      ORDER BY m.date_received DESC
+    `).all(rule.match_value, targetName) as RuleMatchMessage[];
+  }
+  return db.prepare(`
+    SELECT m.id, m.subject, m.date_received, m.sender_email, m.mailbox_id, mb.name AS mailbox_name
+    FROM messages m
+    JOIN mailboxes mb ON m.mailbox_id = mb.id
+    WHERE LOWER(SUBSTR(m.sender_email, INSTR(m.sender_email, '@') + 1)) = ?
+      AND mb.name != ?
+      AND NOT EXISTS (SELECT 1 FROM move_log ml WHERE ml.message_id = m.id AND ml.status = 'applied')
+    ORDER BY m.date_received DESC
+  `).all(rule.match_value, targetName) as RuleMatchMessage[];
+}
+
+export function updateMessageMailbox(messageId: string, mailboxId: number) {
+  getDb().prepare(`UPDATE messages SET mailbox_id = ? WHERE id = ?`).run(mailboxId, messageId);
+}
+
+// ── Agent memory ─────────────────────────────────────────────────────────────
+
+export type MemoryKind = "rule_rationale" | "folder_decision" | "sender_fact" | "user_pref" | "proposal_summary";
+export type MemorySource = "llm_proposal" | "user_decision" | "apply_action" | "system";
+
+export interface AgentMemory {
+  id: number;
+  kind: MemoryKind;
+  key: string | null;
+  content: string;
+  source: MemorySource;
+  confidence: number | null;
+  created_at: string;
+  last_used_at: string | null;
+  superseded_by: number | null;
+}
+
+export interface AgentMemoryInput {
+  kind: MemoryKind;
+  key?: string | null;
+  content: string;
+  source: MemorySource;
+  confidence?: number | null;
+}
+
+export function writeMemory(input: AgentMemoryInput): number {
+  const result = getDb().prepare(`
+    INSERT INTO agent_memory (kind, key, content, source, confidence, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(
+    input.kind,
+    input.key ?? null,
+    input.content,
+    input.source,
+    input.confidence ?? null,
+    new Date().toISOString()
+  );
+  return Number(result.lastInsertRowid);
+}
+
+export function touchMemoryUsed(id: number) {
+  getDb().prepare(`UPDATE agent_memory SET last_used_at = ? WHERE id = ?`)
+    .run(new Date().toISOString(), id);
+}
+
+export function listMemories(kind?: MemoryKind, limit = 500): AgentMemory[] {
+  const db = getDb();
+  return (kind
+    ? db.prepare(
+        `SELECT * FROM agent_memory WHERE superseded_by IS NULL AND kind = ? ORDER BY created_at DESC LIMIT ?`
+      ).all(kind, limit)
+    : db.prepare(
+        `SELECT * FROM agent_memory WHERE superseded_by IS NULL ORDER BY created_at DESC LIMIT ?`
+      ).all(limit)) as AgentMemory[];
+}
+
+export function supersedeMemory(oldId: number, newId: number) {
+  getDb().prepare(`UPDATE agent_memory SET superseded_by = ? WHERE id = ?`).run(newId, oldId);
 }
 
 export function markMovesUndone(ids: number[]) {

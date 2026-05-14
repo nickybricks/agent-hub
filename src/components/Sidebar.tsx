@@ -13,6 +13,7 @@ import {
   Menu,
   X,
   Stethoscope,
+  FolderTree,
 } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
 
@@ -34,6 +35,7 @@ const sections: NavSection[] = [
     items: [
       { href: "/mail-analyzer", label: "Mail Analyzer", icon: Mail, statusKey: "mail-analyzer" },
       { href: "/mail-analyzer/audit", label: "Mailbox Audit", icon: Stethoscope },
+      { href: "/mail-analyzer/proposals", label: "Folder Proposals", icon: FolderTree },
       { href: "/agents/newsletter-summarizer", label: "Newsletter Agent", icon: BookOpen },
     ],
   },
