@@ -3,6 +3,8 @@ import {
   setFolderRuleStatus,
   updateFolderRuleMatch,
   FolderRuleStatus,
+  getFolderRule,
+  writeMemory,
 } from "@/lib/analyzer-db";
 
 export const dynamic = "force-dynamic";
@@ -24,5 +26,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     );
   }
   if (body.status) setFolderRuleStatus(ruleId, body.status);
+  if (body.status) {
+    const rule = getFolderRule(ruleId);
+    writeMemory({
+      kind: "user_pref",
+      key: rule?.target_folder ?? null,
+      source: "user_decision",
+      content: `User set rule (${rule?.match_type}=${rule?.match_value} → ${rule?.target_folder}) status to "${body.status}".`,
+    });
+  }
   return NextResponse.json({ ok: true });
 }
