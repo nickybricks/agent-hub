@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { setMessageOverride, AuditFindingKind } from "@/lib/analyzer-db";
+import { setMessageOverride, AuditFindingKind, writeMemory } from "@/lib/analyzer-db";
 
 export const dynamic = "force-dynamic";
 
@@ -26,5 +26,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid decision" }, { status: 400 });
   }
   setMessageOverride(body.messageId, body.kind, body.decision);
+  writeMemory({
+    kind: "audit_decision",
+    key: body.messageId,
+    source: "user_decision",
+    content: `User decision on audit finding "${body.kind}" for message ${body.messageId}: "${body.decision}".`,
+  });
   return NextResponse.json({ ok: true });
 }

@@ -12,6 +12,7 @@ import {
   getProposedFolderByPath,
   getDb,
   SenderForProposal,
+  writeMemory,
 } from "../lib/analyzer-db";
 
 const ProposalSchema = z.object({
@@ -217,6 +218,20 @@ Design the folder structure. You have the full picture: existing folders, where 
     }
   }
   console.log(`Inserted ${ruleCount} proposed rules. Review at /mail-analyzer/proposals.`);
+
+  writeMemory({
+    kind: "proposal_run",
+    source: "llm",
+    content: `Proposed ${folderInputs.length} folders (${reused} already existed) and ${ruleCount} routing rules using ${config.provider}/${config.model}. Considered ${senders.length} senders and ${existingMailboxes.length} existing mailboxes.`,
+  });
+  for (const f of out.folders) {
+    writeMemory({
+      kind: "rule_rationale",
+      key: f.path,
+      source: "llm",
+      content: `Folder "${f.path}" proposed: ${f.rationale}. Routes ${f.rules.length} rule(s): ${f.rules.map((r) => `${r.match_type}=${r.match_value}`).join(", ")}.`,
+    });
+  }
 }
 
 async function flushLangSmith() {

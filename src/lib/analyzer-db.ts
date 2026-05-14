@@ -153,6 +153,7 @@ function initSchema(db: Database.Database) {
       superseded_by INTEGER REFERENCES agent_memory(id)
     );
     CREATE INDEX IF NOT EXISTS idx_memory_kind_key ON agent_memory(kind, key);
+    CREATE INDEX IF NOT EXISTS idx_memory_active ON agent_memory(superseded_by);
   `);
 
   if (!columnExists(db, "messages", "headers_json")) {
@@ -810,10 +811,16 @@ export function updateMessageMailbox(messageId: string, mailboxId: number) {
   getDb().prepare(`UPDATE messages SET mailbox_id = ? WHERE id = ?`).run(mailboxId, messageId);
 }
 
-// ── Agent memory ─────────────────────────────────────────────────────────────
+export type MemoryKind =
+  | "user_pref"
+  | "sender_fact"
+  | "rule_rationale"
+  | "proposal_run"
+  | "apply_action"
+  | "audit_decision"
+  | "mistake";
 
-export type MemoryKind = "rule_rationale" | "folder_decision" | "sender_fact" | "user_pref" | "proposal_summary";
-export type MemorySource = "llm_proposal" | "user_decision" | "apply_action" | "system";
+export type MemorySource = "user_decision" | "llm" | "judge" | "self";
 
 export interface AgentMemory {
   id: number;
@@ -836,7 +843,7 @@ export interface AgentMemoryInput {
 }
 
 export function writeMemory(input: AgentMemoryInput): number {
-  const result = getDb().prepare(`
+  const info = getDb().prepare(`
     INSERT INTO agent_memory (kind, key, content, source, confidence, created_at)
     VALUES (?, ?, ?, ?, ?, ?)
   `).run(
@@ -845,9 +852,9 @@ export function writeMemory(input: AgentMemoryInput): number {
     input.content,
     input.source,
     input.confidence ?? null,
-    new Date().toISOString()
+    new Date().toISOString(),
   );
-  return Number(result.lastInsertRowid);
+  return info.lastInsertRowid as number;
 }
 
 export function touchMemoryUsed(id: number) {
@@ -855,19 +862,36 @@ export function touchMemoryUsed(id: number) {
     .run(new Date().toISOString(), id);
 }
 
-export function listMemories(kind?: MemoryKind, limit = 500): AgentMemory[] {
+export function listMemories(filter?: { kind?: MemoryKind; key?: string; limit?: number }): AgentMemory[] {
   const db = getDb();
-  return (kind
-    ? db.prepare(
-        `SELECT * FROM agent_memory WHERE superseded_by IS NULL AND kind = ? ORDER BY created_at DESC LIMIT ?`
-      ).all(kind, limit)
-    : db.prepare(
-        `SELECT * FROM agent_memory WHERE superseded_by IS NULL ORDER BY created_at DESC LIMIT ?`
-      ).all(limit)) as AgentMemory[];
+  const limit = filter?.limit ?? 500;
+  if (filter?.kind && filter?.key) {
+    return db.prepare(
+      `SELECT * FROM agent_memory WHERE superseded_by IS NULL AND kind = ? AND key = ? ORDER BY created_at DESC LIMIT ?`
+    ).all(filter.kind, filter.key, limit) as AgentMemory[];
+  }
+  if (filter?.kind) {
+    return db.prepare(
+      `SELECT * FROM agent_memory WHERE superseded_by IS NULL AND kind = ? ORDER BY created_at DESC LIMIT ?`
+    ).all(filter.kind, limit) as AgentMemory[];
+  }
+  if (filter?.key) {
+    return db.prepare(
+      `SELECT * FROM agent_memory WHERE superseded_by IS NULL AND key = ? ORDER BY created_at DESC LIMIT ?`
+    ).all(filter.key, limit) as AgentMemory[];
+  }
+  return db.prepare(
+    `SELECT * FROM agent_memory WHERE superseded_by IS NULL ORDER BY created_at DESC LIMIT ?`
+  ).all(limit) as AgentMemory[];
 }
 
 export function supersedeMemory(oldId: number, newId: number) {
   getDb().prepare(`UPDATE agent_memory SET superseded_by = ? WHERE id = ?`).run(newId, oldId);
+}
+
+export function getMemoryById(id: number): AgentMemory | null {
+  const row = getDb().prepare(`SELECT * FROM agent_memory WHERE id = ?`).get(id) as AgentMemory | undefined;
+  return row ?? null;
 }
 
 export function markMovesUndone(ids: number[]) {

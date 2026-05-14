@@ -10,6 +10,7 @@ import {
   logMoves,
   upsertMailbox,
   updateMessageMailbox,
+  writeMemory,
 } from "@/lib/analyzer-db";
 import { createMailProvider, readMailConfig } from "@/lib/mail-provider";
 
@@ -115,6 +116,13 @@ export async function POST(req: Request) {
   } finally {
     await provider.close();
   }
+
+  writeMemory({
+    kind: "apply_action",
+    key: rule.target_folder,
+    source: "user_decision",
+    content: `User applied rule #${rule.id} (${rule.match_type}=${rule.match_value} → ${rule.target_folder}): ${moved} moved, ${failed} failed. Persistent rule: ${body.makeRule !== false ? "yes" : "no (one-off backfill)"}. Batch ${batchId}.`,
+  });
 
   return NextResponse.json({ ok: true, moved, failed, batch_id: batchId });
 }
