@@ -1,10 +1,9 @@
-/**
- * In-process token-bucket rate limiter.
- *
- * Single-tenant only — state lives in module memory and dies with the process.
- * Designed to be swapped for an Upstash-backed implementation in Phase 6
- * without changing the call sites: keep the function signature stable.
- */
+export interface RateLimitResult {
+  ok: boolean;
+  retryAfterSeconds: number;
+}
+
+// --- in-memory token bucket (used when UPSTASH_REDIS_REST_URL is not set) ---
 
 interface Bucket {
   tokens: number;
@@ -13,16 +12,7 @@ interface Bucket {
 
 const buckets = new Map<string, Bucket>();
 
-export interface RateLimitResult {
-  ok: boolean;
-  retryAfterSeconds: number;
-}
-
-export function checkRateLimit(
-  key: string,
-  limit: number,
-  windowSeconds: number,
-): RateLimitResult {
+function checkInMemory(key: string, limit: number, windowSeconds: number): RateLimitResult {
   const now = Date.now();
   const refillPerMs = limit / (windowSeconds * 1000);
   const bucket = buckets.get(key) ?? { tokens: limit, lastRefillMs: now };
@@ -41,6 +31,35 @@ export function checkRateLimit(
   const tokensShort = 1 - bucket.tokens;
   const retryAfterSeconds = Math.ceil(tokensShort / refillPerMs / 1000);
   return { ok: false, retryAfterSeconds };
+}
+
+// --- Upstash sliding-window (used in production when env vars are set) ---
+
+async function checkUpstash(key: string, limit: number, windowSeconds: number): Promise<RateLimitResult> {
+  const { Ratelimit } = await import("@upstash/ratelimit");
+  const { Redis } = await import("@upstash/redis");
+
+  const ratelimit = new Ratelimit({
+    redis: Redis.fromEnv(),
+    limiter: Ratelimit.slidingWindow(limit, `${windowSeconds} s`),
+  });
+
+  const { success, reset } = await ratelimit.limit(key);
+  const retryAfterSeconds = success ? 0 : Math.ceil((reset - Date.now()) / 1000);
+  return { ok: success, retryAfterSeconds: Math.max(0, retryAfterSeconds) };
+}
+
+// --- public interface ---
+
+export async function checkRateLimit(
+  key: string,
+  limit: number,
+  windowSeconds: number,
+): Promise<RateLimitResult> {
+  if (process.env.UPSTASH_REDIS_REST_URL) {
+    return checkUpstash(key, limit, windowSeconds);
+  }
+  return checkInMemory(key, limit, windowSeconds);
 }
 
 export function ipFromRequest(req: Request): string {

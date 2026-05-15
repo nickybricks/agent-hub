@@ -9,7 +9,7 @@ import {
   AuditFindingKind,
 } from "../lib/analyzer-db";
 
-interface MsgRow {
+export interface MsgRow {
   id: string;
   sender_email: string;
   sender_name: string | null;
@@ -158,7 +158,7 @@ export function aggregate(rows: MsgRow[]): Map<string, SenderAgg> {
 const LEGIT_CATEGORIES = new Set(["transactional", "personal", "work", "newsletter"]);
 const DEMOTE_CATEGORIES = new Set(["promotional", "notification"]);
 
-function scoreFalsePositiveSpam(s: SenderAgg): { score: number; reasons: string[] } | null {
+export function scoreFalsePositiveSpam(s: SenderAgg): { score: number; reasons: string[] } | null {
   if (s.inSpam.length === 0) return null;
   // Hard gate: require prior non-spam evidence. Category alone is not enough,
   // because Phase 2 classifies phishing as 'transactional' from the subject.

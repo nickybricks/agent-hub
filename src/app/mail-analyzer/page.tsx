@@ -110,6 +110,8 @@ export default function MailAnalyzerPage() {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
+  const [rescanning, setRescanning] = useState(false);
+  const [rescanResult, setRescanResult] = useState<string | null>(null);
   const [now, setNow] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<"overview" | "senders" | "mailboxes" | "junk">("overview");
   const wasRunningRef = useRef(false);
@@ -159,6 +161,23 @@ export default function MailAnalyzerPage() {
     }, 2000);
     return () => clearInterval(t);
   }, [overview?.lastRun?.status, loadAll]);
+
+  const triggerSpamRescan = async () => {
+    setRescanning(true);
+    setRescanResult(null);
+    try {
+      const res = await fetch("/api/mail-analyzer/spam-rescan", { method: "POST" });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error ?? "spam rescan failed");
+      setRescanResult(
+        `Flagged ${j.sendersFlagged} sender(s), enqueued ${j.messagesEnqueued} new review row(s).`,
+      );
+    } catch (e) {
+      setRescanResult(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRescanning(false);
+    }
+  };
 
   const triggerScan = async () => {
     setScanning(true);
@@ -219,15 +238,29 @@ export default function MailAnalyzerPage() {
               )}
             </p>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={triggerScan}
-            disabled={scanning || isRunning}
-          >
-            {isRunning || scanning ? "Scanning…" : "Refresh now"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={triggerSpamRescan}
+              disabled={rescanning}
+              title="Re-score Spam/Junk senders and enqueue likely false positives to the review queue."
+            >
+              {rescanning ? "Rescanning…" : "Re-evaluate spam"}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={triggerScan}
+              disabled={scanning || isRunning}
+            >
+              {isRunning || scanning ? "Scanning…" : "Refresh now"}
+            </Button>
+          </div>
         </div>
+        {rescanResult && (
+          <div className="mt-3 text-xs text-neutral-500">{rescanResult}</div>
+        )}
         {isStale && (
           <div className="mt-4 bg-warning-soft border border-border rounded-xl p-3 text-sm">
             Data may be stale (last scan {fmtDate(finishedAt)}). Click <em>Refresh now</em> to re-scan.

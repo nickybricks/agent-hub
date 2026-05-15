@@ -141,6 +141,34 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_movelog_message ON move_log(message_id);
     CREATE INDEX IF NOT EXISTS idx_movelog_status ON move_log(status);
 
+    CREATE TABLE IF NOT EXISTS triage_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      started_at TEXT NOT NULL,
+      finished_at TEXT,
+      messages_processed INTEGER,
+      messages_moved INTEGER,
+      messages_queued INTEGER,
+      watermark TEXT,
+      status TEXT,
+      error TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS review_queue (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      message_id TEXT NOT NULL,
+      mailbox_id INTEGER REFERENCES mailboxes(id),
+      reason TEXT NOT NULL,
+      suggested_action TEXT,
+      suggested_target TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      decided_at TEXT,
+      decided_action TEXT,
+      created_at TEXT NOT NULL,
+      UNIQUE(message_id, reason)
+    );
+    CREATE INDEX IF NOT EXISTS idx_review_status ON review_queue(status);
+    CREATE INDEX IF NOT EXISTS idx_review_reason ON review_queue(reason);
+
     CREATE TABLE IF NOT EXISTS agent_memory (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       kind TEXT NOT NULL,
@@ -892,6 +920,200 @@ export function supersedeMemory(oldId: number, newId: number) {
 export function getMemoryById(id: number): AgentMemory | null {
   const row = getDb().prepare(`SELECT * FROM agent_memory WHERE id = ?`).get(id) as AgentMemory | undefined;
   return row ?? null;
+}
+
+export type TriageRunStatus = "running" | "ok" | "error";
+
+export interface TriageRun {
+  id: number;
+  started_at: string;
+  finished_at: string | null;
+  messages_processed: number | null;
+  messages_moved: number | null;
+  messages_queued: number | null;
+  watermark: string | null;
+  status: TriageRunStatus;
+  error: string | null;
+}
+
+export function startTriageRun(): number {
+  const result = getDb().prepare(
+    `INSERT INTO triage_runs (started_at, status) VALUES (?, 'running')`
+  ).run(new Date().toISOString());
+  return Number(result.lastInsertRowid);
+}
+
+export function finishTriageRun(
+  id: number,
+  counts: { processed: number; moved: number; queued: number },
+  watermark: string | null,
+) {
+  getDb().prepare(`
+    UPDATE triage_runs
+    SET finished_at = ?, messages_processed = ?, messages_moved = ?, messages_queued = ?, watermark = ?, status = 'ok'
+    WHERE id = ?
+  `).run(
+    new Date().toISOString(),
+    counts.processed,
+    counts.moved,
+    counts.queued,
+    watermark,
+    id,
+  );
+}
+
+export function failTriageRun(id: number, error: string) {
+  getDb().prepare(
+    `UPDATE triage_runs SET finished_at = ?, status = 'error', error = ? WHERE id = ?`
+  ).run(new Date().toISOString(), error, id);
+}
+
+export function getLastTriageWatermark(): string | null {
+  const row = getDb().prepare(
+    `SELECT watermark FROM triage_runs WHERE status = 'ok' AND watermark IS NOT NULL ORDER BY id DESC LIMIT 1`
+  ).get() as { watermark: string | null } | undefined;
+  return row?.watermark ?? null;
+}
+
+export function listTriageRuns(limit = 20): TriageRun[] {
+  return getDb().prepare(
+    `SELECT * FROM triage_runs ORDER BY id DESC LIMIT ?`
+  ).all(limit) as TriageRun[];
+}
+
+export interface TriageCandidate {
+  id: string;
+  sender_email: string;
+  sender_name: string | null;
+  subject: string | null;
+  date_received: string;
+  scanned_at: string;
+  mailbox_id: number;
+  mailbox_name: string;
+  account: string;
+  category: string | null;
+}
+
+export function getMessagesForTriage(sinceScannedAt: string | null, limit = 500): TriageCandidate[] {
+  const db = getDb();
+  const since = sinceScannedAt ?? "1970-01-01T00:00:00.000Z";
+  return db.prepare(`
+    SELECT m.id, m.sender_email, m.sender_name, m.subject, m.date_received, m.scanned_at,
+           m.mailbox_id, mb.name AS mailbox_name, mb.account, s.category
+    FROM messages m
+    JOIN mailboxes mb ON m.mailbox_id = mb.id
+    LEFT JOIN senders s ON LOWER(m.sender_email) = s.email
+    WHERE m.scanned_at > ?
+      AND mb.name NOT LIKE 'Sent%'
+      AND mb.name NOT LIKE 'Drafts%'
+      AND mb.name NOT LIKE 'Outbox%'
+      AND mb.name NOT LIKE 'Trash%'
+      AND mb.name NOT LIKE 'Deleted%'
+    ORDER BY m.scanned_at ASC
+    LIMIT ?
+  `).all(since, limit) as TriageCandidate[];
+}
+
+export type ReviewReason =
+  | "unknown_sender"
+  | "low_confidence"
+  | "proposed_rule"
+  | "probably_not_spam"
+  | "probably_spam";
+
+export type ReviewStatus = "pending" | "decided" | "skipped";
+
+export type ReviewAction =
+  | "confirm_move"
+  | "keep_inbox"
+  | "mark_spam"
+  | "not_spam"
+  | "create_rule";
+
+export interface ReviewQueueRow {
+  id: number;
+  message_id: string;
+  mailbox_id: number | null;
+  reason: ReviewReason;
+  suggested_action: string | null;
+  suggested_target: string | null;
+  status: ReviewStatus;
+  decided_at: string | null;
+  decided_action: string | null;
+  created_at: string;
+}
+
+export interface ReviewQueueInput {
+  message_id: string;
+  mailbox_id: number | null;
+  reason: ReviewReason;
+  suggested_action?: string | null;
+  suggested_target?: string | null;
+}
+
+export function enqueueReview(input: ReviewQueueInput): boolean {
+  const result = getDb().prepare(`
+    INSERT OR IGNORE INTO review_queue
+      (message_id, mailbox_id, reason, suggested_action, suggested_target, status, created_at)
+    VALUES (?, ?, ?, ?, ?, 'pending', ?)
+  `).run(
+    input.message_id,
+    input.mailbox_id,
+    input.reason,
+    input.suggested_action ?? null,
+    input.suggested_target ?? null,
+    new Date().toISOString(),
+  );
+  return result.changes > 0;
+}
+
+export interface ReviewQueueRich extends ReviewQueueRow {
+  subject: string | null;
+  sender_email: string;
+  sender_name: string | null;
+  mailbox_name: string;
+  account: string;
+  date_received: string;
+}
+
+export function listReviewQueue(status: ReviewStatus = "pending", limit = 200): ReviewQueueRich[] {
+  return getDb().prepare(`
+    SELECT rq.*, m.subject, m.sender_email, m.sender_name, m.date_received,
+           mb.name AS mailbox_name, mb.account
+    FROM review_queue rq
+    JOIN messages m ON rq.message_id = m.id
+    LEFT JOIN mailboxes mb ON rq.mailbox_id = mb.id
+    WHERE rq.status = ?
+    ORDER BY rq.created_at DESC
+    LIMIT ?
+  `).all(status, limit) as ReviewQueueRich[];
+}
+
+export function getReviewQueueItem(id: number): ReviewQueueRich | null {
+  const row = getDb().prepare(`
+    SELECT rq.*, m.subject, m.sender_email, m.sender_name, m.date_received,
+           mb.name AS mailbox_name, mb.account
+    FROM review_queue rq
+    JOIN messages m ON rq.message_id = m.id
+    LEFT JOIN mailboxes mb ON rq.mailbox_id = mb.id
+    WHERE rq.id = ?
+  `).get(id) as ReviewQueueRich | undefined;
+  return row ?? null;
+}
+
+export function setReviewDecided(id: number, action: ReviewAction) {
+  getDb().prepare(`
+    UPDATE review_queue
+    SET status = 'decided', decided_at = ?, decided_action = ?
+    WHERE id = ?
+  `).run(new Date().toISOString(), action, id);
+}
+
+export function countPendingReview(): number {
+  const row = getDb().prepare(
+    `SELECT COUNT(*) AS n FROM review_queue WHERE status = 'pending'`
+  ).get() as { n: number };
+  return row.n;
 }
 
 export function markMovesUndone(ids: number[]) {
