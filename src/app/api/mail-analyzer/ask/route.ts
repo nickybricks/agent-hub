@@ -231,7 +231,7 @@ async function runAsk(question: string): Promise<{ answer: string; cited: AgentM
 }
 
 export async function POST(req: Request) {
-  const rl = checkRateLimit(`ask:${ipFromRequest(req)}`, 10, 60);
+  const rl = await checkRateLimit(`ask:${ipFromRequest(req)}`, 10, 60);
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Too many requests", retryAfter: rl.retryAfterSeconds },

@@ -190,6 +190,43 @@ export const moveLog = pgTable(
   ]
 );
 
+export const triageRuns = pgTable("triage_runs", {
+  id: serial("id").primaryKey(),
+  startedAt: text("started_at").notNull(),
+  finishedAt: text("finished_at"),
+  messagesProcessed: integer("messages_processed"),
+  messagesMoved: integer("messages_moved"),
+  messagesQueued: integer("messages_queued"),
+  watermark: text("watermark"),
+  status: text("status"),
+  error: text("error"),
+  userId: uuid("user_id").notNull(),
+  accountId: uuid("account_id"),
+});
+
+export const reviewQueue = pgTable(
+  "review_queue",
+  {
+    id: serial("id").primaryKey(),
+    messageId: text("message_id").notNull(),
+    mailboxId: integer("mailbox_id").references(() => mailboxes.id),
+    reason: text("reason").notNull(),
+    suggestedAction: text("suggested_action"),
+    suggestedTarget: text("suggested_target"),
+    status: text("status").notNull().default("pending"),
+    decidedAt: text("decided_at"),
+    decidedAction: text("decided_action"),
+    createdAt: text("created_at").notNull(),
+    userId: uuid("user_id").notNull(),
+    accountId: uuid("account_id"),
+  },
+  (t) => [
+    index("idx_review_status").on(t.status),
+    index("idx_review_reason").on(t.reason),
+    unique("review_queue_msg_reason_user_idx").on(t.messageId, t.reason, t.userId),
+  ]
+);
+
 export const agentMemory = pgTable(
   "agent_memory",
   {
