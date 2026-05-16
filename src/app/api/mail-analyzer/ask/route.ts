@@ -5,6 +5,9 @@ import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { traceable } from "langsmith/traceable";
 import { createLLM, LLMConfig } from "@/agent/summarize";
 import { getDb, listMemories, touchMemoryUsed, AgentMemory } from "@/lib/analyzer-db";
+import { listMemoriesPg, touchMemoryUsedPg, gatherAskStatsPg } from "@/lib/analyzer-db-pg";
+import { isMultiTenant } from "@/lib/db";
+import { createClient } from "@/lib/supabase/server";
 import { withGuardrail, wrapEmail } from "@/lib/prompt-safety";
 import { checkRateLimit, ipFromRequest } from "@/lib/rate-limit";
 
@@ -173,9 +176,11 @@ function extractCitedIds(text: string): number[] {
 }
 
 const gatherContext = traceable(
-  async () => {
-    const memories = listMemories({ limit: 200 });
-    const stats = gatherStats();
+  async (userId: string | null) => {
+    const memories = userId
+      ? await listMemoriesPg(userId, { limit: 200 })
+      : listMemories({ limit: 200 });
+    const stats = userId ? await gatherAskStatsPg(userId) : gatherStats();
     return { memories, stats };
   },
   { name: "ask.gather-context", run_type: "tool" },
@@ -197,8 +202,11 @@ QUESTION: ${input.question}`;
   { name: "ask.build-prompt", run_type: "prompt" },
 );
 
-async function runAsk(question: string): Promise<{ answer: string; cited: AgentMemory[] }> {
-  const { memories, stats } = await gatherContext();
+async function runAsk(
+  question: string,
+  userId: string | null,
+): Promise<{ answer: string; cited: AgentMemory[] }> {
+  const { memories, stats } = await gatherContext(userId);
   const userPrompt = await buildPrompt({ question, memories, stats });
 
   const config = loadLLMConfig();
@@ -225,7 +233,10 @@ async function runAsk(question: string): Promise<{ answer: string; cited: AgentM
   const citedIds = extractCitedIds(answer);
   const memoryById = new Map(memories.map((m) => [m.id, m]));
   const cited = citedIds.map((id) => memoryById.get(id)).filter((m): m is AgentMemory => !!m);
-  for (const m of cited) touchMemoryUsed(m.id);
+  for (const m of cited) {
+    if (userId) await touchMemoryUsedPg(userId, m.id);
+    else touchMemoryUsed(m.id);
+  }
 
   return { answer, cited };
 }
@@ -243,6 +254,14 @@ export async function POST(req: Request) {
   const question = body?.question?.trim();
   if (!question) return NextResponse.json({ error: "question required" }, { status: 400 });
 
+  let userId: string | null = null;
+  if (isMultiTenant()) {
+    const supabase = await createClient();
+    const { data: { user }, error } = await supabase.auth.getUser();
+    if (error || !user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    userId = user.id;
+  }
+
   try {
     const tracedAsk = traceable(runAsk, {
       name: "mail-analyzer.ask",
@@ -250,7 +269,7 @@ export async function POST(req: Request) {
       tags: ["mail-analyzer", "ask"],
       metadata: { question_length: question.length },
     });
-    const { answer, cited } = await tracedAsk(question);
+    const { answer, cited } = await tracedAsk(question, userId);
     return NextResponse.json({
       answer,
       cited_memories: cited.map((m) => ({

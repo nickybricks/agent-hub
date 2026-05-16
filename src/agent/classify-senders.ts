@@ -5,12 +5,35 @@ import { traceable } from "langsmith/traceable";
 import { z } from "zod";
 import { createLLM, LLMConfig } from "./summarize";
 import {
-  getUnclassifiedSenders,
-  setSenderCategory,
+  getUnclassifiedSenders as getUnclassifiedSendersSqlite,
+  setSenderCategory as setSenderCategorySqlite,
   SENDER_CATEGORIES,
   UnclassifiedSender,
 } from "../lib/analyzer-db";
+import { getUnclassifiedSendersPg, setSenderCategoryPg } from "../lib/analyzer-db-pg";
+import { isMultiTenant } from "../lib/db";
 import { withGuardrail, wrapEmail, sanitizeSubject } from "../lib/prompt-safety";
+
+const MT = isMultiTenant();
+const USER_ID = MT ? process.env.DEV_USER_ID : null;
+if (MT && !USER_ID) {
+  console.error("MULTI_TENANT=true requires DEV_USER_ID env var.");
+  process.exit(1);
+}
+
+async function getUnclassifiedSenders(
+  model: string,
+  minMessages: number,
+  limit?: number,
+): Promise<UnclassifiedSender[]> {
+  return MT
+    ? getUnclassifiedSendersPg(USER_ID!, model, minMessages, limit)
+    : getUnclassifiedSendersSqlite(model, minMessages, limit);
+}
+async function setSenderCategory(email: string, category: string, model: string): Promise<void> {
+  if (MT) await setSenderCategoryPg(USER_ID!, email, category, model);
+  else setSenderCategorySqlite(email, category, model);
+}
 
 const BATCH_SIZE = 20;
 
@@ -90,7 +113,7 @@ async function main() {
   if (modelArg) config.model = modelArg.split("=")[1];
   console.log(`Classifying senders with ${config.provider}/${config.model}...`);
 
-  const senders = getUnclassifiedSenders(config.model, minMessages, limit);
+  const senders = await getUnclassifiedSenders(config.model, minMessages, limit);
   if (senders.length === 0) {
     console.log("No unclassified senders. Nothing to do.");
     return;
@@ -119,7 +142,7 @@ async function main() {
         const results = await classifyBatch(llm, config.systemPrompt, batch);
         for (const s of batch) {
           const cat = results.get(s.email) ?? "other";
-          setSenderCategory(s.email, cat, config.model);
+          await setSenderCategory(s.email, cat, config.model);
           done++;
         }
         console.log(`  batch ${idx + 1}/${batches.length} (${done} senders done)`);
