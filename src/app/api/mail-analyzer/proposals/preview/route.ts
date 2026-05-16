@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
-import { getFolderRule, getMessagesMatchingRule } from "@/lib/analyzer-db";
-import { getFolderRulePg, getMessagesMatchingRulePg } from "@/lib/analyzer-db-pg";
 import { isMultiTenant } from "@/lib/db";
 import { createClient } from "@/lib/supabase/server";
+import { previewRule, ApplyError } from "@/lib/apply-rule";
 
 export const dynamic = "force-dynamic";
 
@@ -19,33 +18,13 @@ export async function GET(req: Request) {
     userId = user.id;
   }
 
-  const rule = userId ? await getFolderRulePg(userId, ruleId) : getFolderRule(ruleId);
-  if (!rule) return NextResponse.json({ error: "rule not found" }, { status: 404 });
-
-  const matches = userId
-    ? await getMessagesMatchingRulePg(userId, rule)
-    : getMessagesMatchingRule(rule);
-  // Group by source mailbox so the user sees what's actually moving.
-  const byMailbox = new Map<string, typeof matches>();
-  for (const m of matches) {
-    const arr = byMailbox.get(m.mailbox_name) ?? [];
-    arr.push(m);
-    byMailbox.set(m.mailbox_name, arr);
+  try {
+    const { rule, total, groups } = await previewRule(userId, ruleId);
+    return NextResponse.json({ rule, total, groups });
+  } catch (err) {
+    if (err instanceof ApplyError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
+    throw err;
   }
-  const groups = [...byMailbox.entries()].map(([mailbox, msgs]) => ({
-    from_mailbox: mailbox,
-    count: msgs.length,
-    samples: msgs.slice(0, 5).map((m) => ({
-      id: m.id,
-      subject: m.subject,
-      sender_email: m.sender_email,
-      date_received: m.date_received,
-    })),
-  }));
-
-  return NextResponse.json({
-    rule,
-    total: matches.length,
-    groups,
-  });
 }

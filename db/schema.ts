@@ -247,3 +247,62 @@ export const agentMemory = pgTable(
     index("idx_memory_active").on(t.supersededBy),
   ]
 );
+
+// Phase 3.5 — agentic chat over the mailbox.
+
+export const chatThreads = pgTable(
+  "chat_threads",
+  {
+    id: serial("id").primaryKey(),
+    title: text("title"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+    userId: uuid("user_id").notNull(),
+    accountId: uuid("account_id"),
+  },
+  (t) => [index("idx_chat_threads_user").on(t.userId, t.updatedAt)]
+);
+
+export const chatMessages = pgTable(
+  "chat_messages",
+  {
+    id: serial("id").primaryKey(),
+    threadId: integer("thread_id")
+      .notNull()
+      .references(() => chatThreads.id),
+    role: text("role").notNull(), // user | assistant | tool
+    content: text("content"),
+    // For tool result messages: which call this answers + its payload.
+    toolCallRef: integer("tool_call_ref"),
+    toolName: text("tool_name"),
+    createdAt: text("created_at").notNull(),
+    userId: uuid("user_id").notNull(),
+    accountId: uuid("account_id"),
+  },
+  (t) => [index("idx_chat_messages_thread").on(t.threadId, t.id)]
+);
+
+export const toolCalls = pgTable(
+  "tool_calls",
+  {
+    id: serial("id").primaryKey(),
+    threadId: integer("thread_id")
+      .notNull()
+      .references(() => chatThreads.id),
+    toolName: text("tool_name").notNull(),
+    toolInput: text("tool_input").notNull(), // JSON
+    // pending → awaiting user confirm; executed | cancelled | failed afterwards.
+    status: text("status").notNull().default("pending"),
+    preview: text("preview"), // JSON diff shown in the confirm card
+    result: text("result"), // JSON result after execution
+    reasoning: text("reasoning"), // agent's stated why, at request time
+    createdAt: text("created_at").notNull(),
+    decidedAt: text("decided_at"),
+    userId: uuid("user_id").notNull(),
+    accountId: uuid("account_id"),
+  },
+  (t) => [
+    index("idx_tool_calls_thread").on(t.threadId, t.id),
+    index("idx_tool_calls_status").on(t.status),
+  ]
+);
