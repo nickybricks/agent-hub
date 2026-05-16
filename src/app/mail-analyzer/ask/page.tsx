@@ -23,10 +23,23 @@ interface ToolChip {
   phase: "running" | "done";
 }
 
+interface ThreadInfo {
+  id: number;
+  title: string | null;
+  updated_at: string;
+}
+
+interface Asking {
+  question: string;
+  options: string[];
+}
+
 export default function ChatPage() {
   const [threadId, setThreadId] = useState<number | null>(null);
+  const [threads, setThreads] = useState<ThreadInfo[]>([]);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [pending, setPending] = useState<Pending | null>(null);
+  const [asking, setAsking] = useState<Asking | null>(null);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,25 +57,39 @@ export default function ChatPage() {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, pending, busy, liveText, liveThinking, chips]);
 
+  async function loadThreads(): Promise<ThreadInfo[]> {
+    try {
+      const res = await fetch("/api/mail-analyzer/chat");
+      const data = await res.json();
+      const list: ThreadInfo[] = data.threads ?? [];
+      setThreads(list);
+      return list;
+    } catch {
+      return [];
+    }
+  }
+
+  async function loadThread(id: number) {
+    try {
+      const t = await fetch(`/api/mail-analyzer/chat?threadId=${id}`);
+      const td = await t.json();
+      if (t.ok) {
+        setThreadId(id);
+        setMessages(td.messages ?? []);
+        setPending(td.pending ?? null);
+        setAsking(null);
+        setError(null);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
   // Resume the most recent thread on mount.
   useEffect(() => {
     (async () => {
-      try {
-        const res = await fetch("/api/mail-analyzer/chat");
-        const data = await res.json();
-        const latest = data.threads?.[0];
-        if (latest) {
-          const t = await fetch(`/api/mail-analyzer/chat?threadId=${latest.id}`);
-          const td = await t.json();
-          if (t.ok) {
-            setThreadId(latest.id);
-            setMessages(td.messages ?? []);
-            setPending(td.pending ?? null);
-          }
-        }
-      } catch {
-        /* fresh start is fine */
-      }
+      const list = await loadThreads();
+      if (list[0]) await loadThread(list[0].id);
     })();
   }, []);
 
@@ -106,11 +133,14 @@ export default function ChatPage() {
           });
         } else if (ev.type === "pending") {
           setPending(ev.pending);
+        } else if (ev.type === "ask") {
+          setAsking({ question: ev.question, options: ev.options ?? [] });
         } else if (ev.type === "done") {
           if (ev.threadId) setThreadId(ev.threadId);
           setMessages(ev.messages ?? []);
           setPending(ev.pending ?? null);
           resetLive();
+          loadThreads();
         } else if (ev.type === "error") {
           setError(ev.message);
         }
@@ -122,6 +152,7 @@ export default function ChatPage() {
     if (busy) return;
     setBusy(true);
     setError(null);
+    setAsking(null);
     resetLive();
     const ac = new AbortController();
     abortRef.current = ac;
@@ -147,15 +178,20 @@ export default function ChatPage() {
     }
   }
 
-  function send() {
-    const message = input.trim();
-    if (!message) return;
-    setInput("");
+  function sendMessage(message: string) {
+    if (!message.trim()) return;
     setMessages((m) => [
       ...m,
       { id: Date.now(), role: "user", content: message, tool_name: null, created_at: "" },
     ]);
     run("/api/mail-analyzer/chat", { threadId, message });
+  }
+
+  function send() {
+    const message = input.trim();
+    if (!message) return;
+    setInput("");
+    sendMessage(message);
   }
 
   function decide(decision: "apply" | "cancel") {
@@ -174,6 +210,7 @@ export default function ChatPage() {
     setThreadId(null);
     setMessages([]);
     setPending(null);
+    setAsking(null);
     setError(null);
     resetLive();
   }
@@ -188,9 +225,30 @@ export default function ChatPage() {
             asks before every change.
           </p>
         </div>
-        <Button variant="ghost" onClick={newChat} disabled={busy}>
-          New chat
-        </Button>
+        <div className="flex items-center gap-2">
+          {threads.length > 0 && (
+            <select
+              value={threadId ?? ""}
+              disabled={busy}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v) loadThread(Number(v));
+              }}
+              className="rounded-md border border-input bg-background text-sm px-2 py-1.5 max-w-[200px] disabled:opacity-60"
+              aria-label="Past chats"
+            >
+              {threadId == null && <option value="">New chat…</option>}
+              {threads.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {(t.title || `Chat #${t.id}`).slice(0, 40)}
+                </option>
+              ))}
+            </select>
+          )}
+          <Button variant="ghost" onClick={newChat} disabled={busy}>
+            New chat
+          </Button>
+        </div>
       </header>
 
       <div className="space-y-3">
@@ -282,6 +340,19 @@ export default function ChatPage() {
                 Cancel
               </Button>
             </div>
+          </div>
+        )}
+
+        {asking && !busy && asking.options.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {asking.options.map((opt, i) => (
+              <Button key={i} variant="ghost" onClick={() => sendMessage(opt)}>
+                {opt}
+              </Button>
+            ))}
+            <span className="text-xs text-muted-foreground self-center">
+              …or type your own answer below
+            </span>
           </div>
         )}
 
