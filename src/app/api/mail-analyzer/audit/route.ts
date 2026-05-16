@@ -5,6 +5,14 @@ import {
   getMessageOverrides,
   AuditFindingKind,
 } from "@/lib/analyzer-db";
+import {
+  listAuditFindingsPg,
+  getMessageOverridesPg,
+  getAuditMessageDetailsPg,
+  getLastAuditRunPg,
+} from "@/lib/analyzer-db-pg";
+import { isMultiTenant } from "@/lib/db";
+import { createClient } from "@/lib/supabase/server";
 import { runAudit } from "@/agent/audit";
 
 export const dynamic = "force-dynamic";
@@ -28,8 +36,15 @@ const ALL_KINDS: AuditFindingKind[] = [
 
 export async function GET() {
   try {
-    const db = getDb();
-    const findings = listAuditFindings();
+    let userId: string | null = null;
+    if (isMultiTenant()) {
+      const supabase = await createClient();
+      const { data: { user }, error } = await supabase.auth.getUser();
+      if (error || !user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+      userId = user.id;
+    }
+
+    const findings = userId ? await listAuditFindingsPg(userId) : listAuditFindings();
 
     const allIds = new Set<string>();
     for (const f of findings) for (const id of f.message_ids) allIds.add(id);
@@ -37,13 +52,18 @@ export async function GET() {
 
     const detailMap = new Map<string, MessageDetail>();
     if (idList.length > 0) {
-      const placeholders = idList.map(() => "?").join(",");
-      const rows = db.prepare(`
-        SELECT m.id, m.subject, m.date_received, m.is_read, mb.name AS mailbox_name
-        FROM messages m
-        JOIN mailboxes mb ON m.mailbox_id = mb.id
-        WHERE m.id IN (${placeholders})
-      `).all(...idList) as MessageDetail[];
+      let rows: MessageDetail[];
+      if (userId) {
+        rows = (await getAuditMessageDetailsPg(userId, idList)) as MessageDetail[];
+      } else {
+        const placeholders = idList.map(() => "?").join(",");
+        rows = getDb().prepare(`
+          SELECT m.id, m.subject, m.date_received, m.is_read, mb.name AS mailbox_name
+          FROM messages m
+          JOIN mailboxes mb ON m.mailbox_id = mb.id
+          WHERE m.id IN (${placeholders})
+        `).all(...idList) as MessageDetail[];
+      }
       for (const r of rows) detailMap.set(r.id, { ...r, override: null });
     }
 
@@ -51,7 +71,9 @@ export async function GET() {
     for (const kind of ALL_KINDS) grouped[kind] = [];
 
     for (const f of findings) {
-      const overrides = getMessageOverrides(f.kind, f.message_ids);
+      const overrides = userId
+        ? await getMessageOverridesPg(userId, f.kind, f.message_ids)
+        : getMessageOverrides(f.kind, f.message_ids);
       const messages = f.message_ids
         .map((id) => {
           const d = detailMap.get(id);
@@ -62,13 +84,15 @@ export async function GET() {
       grouped[f.kind].push(shapeFinding(f, messages));
     }
 
-    const lastRun = db
-      .prepare(
-        "SELECT id, started_at, finished_at, findings_count, status FROM audit_runs ORDER BY id DESC LIMIT 1"
-      )
-      .get() as
-      | { id: number; started_at: string; finished_at: string | null; findings_count: number | null; status: string }
-      | undefined;
+    const lastRun = userId
+      ? await getLastAuditRunPg(userId)
+      : (getDb()
+          .prepare(
+            "SELECT id, started_at, finished_at, findings_count, status FROM audit_runs ORDER BY id DESC LIMIT 1"
+          )
+          .get() as
+          | { id: number; started_at: string; finished_at: string | null; findings_count: number | null; status: string }
+          | undefined) ?? null;
 
     return NextResponse.json({ findings: grouped, lastRun: lastRun ?? null });
   } catch (err) {
@@ -95,7 +119,14 @@ function shapeFinding(f: ReturnType<typeof listAuditFindings>[number], messages:
 
 export async function POST() {
   try {
-    const count = await runAudit();
+    let userId: string | null = null;
+    if (isMultiTenant()) {
+      const supabase = await createClient();
+      const { data: { user }, error } = await supabase.auth.getUser();
+      if (error || !user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+      userId = user.id;
+    }
+    const count = await runAudit(userId);
     return NextResponse.json({ ok: true, findings: count });
   } catch (err) {
     return NextResponse.json(

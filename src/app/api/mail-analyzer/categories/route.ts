@@ -1,10 +1,20 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/analyzer-db";
+import { isMultiTenant } from "@/lib/db";
+import { createClient } from "@/lib/supabase/server";
+import { getCategoryRollupPg } from "@/lib/analyzer-db-pg";
 
 export const dynamic = "force-dynamic";
 
-export function GET() {
+export async function GET() {
   try {
+    if (isMultiTenant()) {
+      const supabase = await createClient();
+      const { data: { user }, error } = await supabase.auth.getUser();
+      if (error || !user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+      return NextResponse.json({ categories: await getCategoryRollupPg(user.id) });
+    }
+
     const db = getDb();
     const selfEmail = (process.env.IMAP_USER || "").toLowerCase();
 

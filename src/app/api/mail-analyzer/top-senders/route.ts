@@ -1,13 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/analyzer-db";
+import { isMultiTenant } from "@/lib/db";
+import { createClient } from "@/lib/supabase/server";
+import { getTopSendersPg } from "@/lib/analyzer-db-pg";
 
 export const dynamic = "force-dynamic";
 
-export function GET(req: NextRequest) {
+export async function GET(req: NextRequest) {
   try {
+    const category = req.nextUrl.searchParams.get("category");
+
+    if (isMultiTenant()) {
+      const supabase = await createClient();
+      const { data: { user }, error } = await supabase.auth.getUser();
+      if (error || !user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+      return NextResponse.json({ senders: await getTopSendersPg(user.id, category) });
+    }
+
     const db = getDb();
     const selfEmail = (process.env.IMAP_USER || "").toLowerCase();
-    const category = req.nextUrl.searchParams.get("category");
 
     let categoryClause = "";
     const params: unknown[] = [selfEmail];

@@ -14,6 +14,19 @@ import {
   SenderForProposal,
   writeMemory,
 } from "../lib/analyzer-db";
+import {
+  getSendersForProposalPg,
+  getProposalFolderRowsPg,
+  getTopSendersForMailboxPg,
+  getCategoryDistributionPg,
+  getMailboxTotalsPg,
+  insertProposedFoldersPg,
+  insertFolderRulePg,
+  setProposedFolderStatusPg,
+  getProposedFolderByPathPg,
+  writeMemoryPg,
+} from "../lib/analyzer-db-pg";
+import { isMultiTenant } from "../lib/db";
 import { withGuardrail, wrapEmail } from "../lib/prompt-safety";
 
 const ProposalSchema = z.object({
@@ -81,70 +94,88 @@ async function main() {
   if (providerArg) config.provider = providerArg.split("=")[1] as LLMConfig["provider"];
   if (modelArg) config.model = modelArg.split("=")[1];
 
+  const MT = isMultiTenant();
+  const userId = MT ? process.env.DEV_USER_ID ?? null : null;
+  if (MT && !userId) {
+    console.error("MULTI_TENANT=true requires DEV_USER_ID env var.");
+    process.exit(1);
+  }
+
   // Default to ALL senders meeting the min-messages threshold — Sonnet's context window
   // easily handles a few thousand entries, and folder design improves with full visibility.
-  const senders = getSendersForProposal(
-    minArg ? Number(minArg.split("=")[1]) : 3,
-    limitArg ? Number(limitArg.split("=")[1]) : 5000
-  );
+  const minMessages = minArg ? Number(minArg.split("=")[1]) : 3;
+  const limit = limitArg ? Number(limitArg.split("=")[1]) : 5000;
+  const senders = userId
+    ? await getSendersForProposalPg(userId, minMessages, limit)
+    : getSendersForProposal(minMessages, limit);
   if (senders.length === 0) {
     console.log("No senders meet the threshold. Run mail:analyze + mail:classify first.");
     return;
   }
 
-  const db = getDb();
-
   // Existing folders with message counts + top senders per folder.
-  const folderRows = db
-    .prepare(
-      `SELECT mb.id, mb.name, COUNT(m.id) AS msg_count
-       FROM mailboxes mb
-       LEFT JOIN messages m ON m.mailbox_id = mb.id
-       GROUP BY mb.id
-       ORDER BY msg_count DESC`
-    )
-    .all() as { id: number; name: string; msg_count: number }[];
+  const folderRows = userId
+    ? await getProposalFolderRowsPg(userId)
+    : (getDb()
+        .prepare(
+          `SELECT mb.id, mb.name, COUNT(m.id) AS msg_count
+           FROM mailboxes mb
+           LEFT JOIN messages m ON m.mailbox_id = mb.id
+           GROUP BY mb.id
+           ORDER BY msg_count DESC`
+        )
+        .all() as { id: number; name: string; msg_count: number }[]);
   const existingMailboxes = folderRows.map((r) => r.name);
   const existingLower = new Set(existingMailboxes.map((n) => n.toLowerCase()));
 
-  const topSendersStmt = db.prepare(
-    `SELECT sender_email, COUNT(*) AS c
-     FROM messages WHERE mailbox_id = ?
-     GROUP BY LOWER(sender_email)
-     ORDER BY c DESC LIMIT 3`
-  );
+  const topSendersStmt = userId
+    ? null
+    : getDb().prepare(
+        `SELECT sender_email, COUNT(*) AS c
+         FROM messages WHERE mailbox_id = ?
+         GROUP BY LOWER(sender_email)
+         ORDER BY c DESC LIMIT 3`
+      );
 
-  const folderContext = folderRows
-    .map((f) => {
-      const tops = topSendersStmt.all(f.id) as { sender_email: string; c: number }[];
-      const topStr = tops.length
-        ? ` — top: ${tops.map((t) => `${t.sender_email} (${t.c})`).join(", ")}`
-        : "";
-      return `- ${f.name} (${f.msg_count.toLocaleString()} msgs)${topStr}`;
-    })
-    .join("\n");
+  const folderContext = (
+    await Promise.all(
+      folderRows.map(async (f) => {
+        const tops = userId
+          ? await getTopSendersForMailboxPg(userId, f.id)
+          : (topSendersStmt!.all(f.id) as { sender_email: string; c: number }[]);
+        const topStr = tops.length
+          ? ` — top: ${tops.map((t) => `${t.sender_email} (${t.c})`).join(", ")}`
+          : "";
+        return `- ${f.name} (${f.msg_count.toLocaleString()} msgs)${topStr}`;
+      })
+    )
+  ).join("\n");
 
   // Category distribution across all classified senders.
-  const catRows = db
-    .prepare(
-      `SELECT s.category, COUNT(DISTINCT s.email) AS senders, COUNT(m.id) AS msgs
-       FROM senders s
-       JOIN messages m ON LOWER(m.sender_email) = s.email
-       WHERE s.category IS NOT NULL
-       GROUP BY s.category
-       ORDER BY msgs DESC`
-    )
-    .all() as { category: string; senders: number; msgs: number }[];
+  const catRows = userId
+    ? await getCategoryDistributionPg(userId)
+    : (getDb()
+        .prepare(
+          `SELECT s.category, COUNT(DISTINCT s.email) AS senders, COUNT(m.id) AS msgs
+           FROM senders s
+           JOIN messages m ON LOWER(m.sender_email) = s.email
+           WHERE s.category IS NOT NULL
+           GROUP BY s.category
+           ORDER BY msgs DESC`
+        )
+        .all() as { category: string; senders: number; msgs: number }[]);
   const catContext = catRows
     .map((c) => `- ${c.category}: ${c.msgs.toLocaleString()} messages from ${c.senders} senders`)
     .join("\n");
 
   // Overall totals.
-  const totals = db
-    .prepare(
-      `SELECT COUNT(*) AS msgs, COUNT(DISTINCT sender_email) AS senders FROM messages`
-    )
-    .get() as { msgs: number; senders: number };
+  const totals = userId
+    ? await getMailboxTotalsPg(userId)
+    : (getDb()
+        .prepare(
+          `SELECT COUNT(*) AS msgs, COUNT(DISTINCT sender_email) AS senders FROM messages`
+        )
+        .get() as { msgs: number; senders: number });
 
   console.log(
     `Proposing structure from ${senders.length} senders using ${config.provider}/${config.model}… (${existingMailboxes.length} existing folders, ${totals.msgs.toLocaleString()} total messages)`
@@ -189,14 +220,18 @@ Design the folder structure. You have the full picture: existing folders, where 
   const out = await invokeProposal({ system: config.systemPrompt, user: userPrompt });
 
   const folderInputs = out.folders.map((f) => ({ path: f.path, rationale: f.rationale }));
-  insertProposedFolders(folderInputs);
+  if (userId) await insertProposedFoldersPg(userId, folderInputs);
+  else insertProposedFolders(folderInputs);
   // Mark folders that already exist as 'created' so the UI surfaces that.
   let reused = 0;
   for (const f of folderInputs) {
     if (existingLower.has(f.path.toLowerCase())) {
-      const row = getProposedFolderByPath(f.path);
+      const row = userId
+        ? await getProposedFolderByPathPg(userId, f.path)
+        : getProposedFolderByPath(f.path);
       if (row && row.status === "proposed") {
-        setProposedFolderStatus(row.id, "created");
+        if (userId) await setProposedFolderStatusPg(userId, row.id, "created");
+        else setProposedFolderStatus(row.id, "created");
         reused++;
       }
     }
@@ -206,32 +241,38 @@ Design the folder structure. You have the full picture: existing folders, where 
   let ruleCount = 0;
   for (const f of out.folders) {
     for (const r of f.rules) {
-      insertFolderRule({
+      const ruleInput = {
         match_type: r.match_type,
         match_value: r.match_value,
-        action: "route_to",
+        action: "route_to" as const,
         target_folder: f.path,
-        source: "llm_proposal",
+        source: "llm_proposal" as const,
         confidence: r.confidence,
-        status: "proposed",
-      });
+        status: "proposed" as const,
+      };
+      if (userId) await insertFolderRulePg(userId, ruleInput);
+      else insertFolderRule(ruleInput);
       ruleCount++;
     }
   }
   console.log(`Inserted ${ruleCount} proposed rules. Review at /mail-analyzer/proposals.`);
 
-  writeMemory({
-    kind: "proposal_run",
-    source: "llm",
+  const runMemo = {
+    kind: "proposal_run" as const,
+    source: "llm" as const,
     content: `Proposed ${folderInputs.length} folders (${reused} already existed) and ${ruleCount} routing rules using ${config.provider}/${config.model}. Considered ${senders.length} senders and ${existingMailboxes.length} existing mailboxes.`,
-  });
+  };
+  if (userId) await writeMemoryPg(userId, runMemo);
+  else writeMemory(runMemo);
   for (const f of out.folders) {
-    writeMemory({
-      kind: "rule_rationale",
+    const ruleMemo = {
+      kind: "rule_rationale" as const,
       key: f.path,
-      source: "llm",
+      source: "llm" as const,
       content: `Folder "${f.path}" proposed: ${f.rationale}. Routes ${f.rules.length} rule(s): ${f.rules.map((r) => `${r.match_type}=${r.match_value}`).join(", ")}.`,
-    });
+    };
+    if (userId) await writeMemoryPg(userId, ruleMemo);
+    else writeMemory(ruleMemo);
   }
 }
 
