@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { isMultiTenant } from "@/lib/db";
 import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit, ipFromRequest } from "@/lib/rate-limit";
-import { runLoop } from "@/lib/chat-agent";
+import { chatStreamResponse } from "@/lib/chat-stream";
 import * as sq from "@/lib/chat-db";
 import * as pg from "@/lib/chat-db-pg";
 
@@ -88,14 +88,5 @@ export async function POST(req: Request) {
 
   await appendMessage(userId, { thread_id: threadId, role: "user", content: message });
 
-  try {
-    const result = await runLoop(userId, threadId);
-    const messages = await listMessages(userId, threadId);
-    return NextResponse.json({ threadId, messages, pending: result.pending });
-  } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "chat failed" },
-      { status: 500 },
-    );
-  }
+  return chatStreamResponse(userId, threadId, req.signal, { turn_kind: "message" });
 }

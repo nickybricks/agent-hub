@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { isMultiTenant } from "@/lib/db";
 import { createClient } from "@/lib/supabase/server";
 import { executeMutation } from "@/lib/chat-tools";
-import { runLoop, getToolCall, finishToolCall, persistMemory } from "@/lib/chat-agent";
+import { getToolCall, finishToolCall, persistMemory } from "@/lib/chat-agent";
+import { chatStreamResponse } from "@/lib/chat-stream";
 import * as sq from "@/lib/chat-db";
 import * as pg from "@/lib/chat-db-pg";
 
@@ -11,8 +12,6 @@ export const maxDuration = 300;
 
 const appendMessage = (u: string | null, m: Parameters<typeof sq.appendMessage>[0]) =>
   u ? pg.appendMessagePg(u, m) : Promise.resolve(sq.appendMessage(m));
-const listMessages = (u: string | null, id: number) =>
-  u ? pg.listMessagesPg(u, id) : Promise.resolve(sq.listMessages(id));
 
 export async function POST(req: Request) {
   let userId: string | null = null;
@@ -82,14 +81,5 @@ export async function POST(req: Request) {
     }
   }
 
-  try {
-    const result = await runLoop(userId, threadId);
-    const messages = await listMessages(userId, threadId);
-    return NextResponse.json({ threadId, messages, pending: result.pending });
-  } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "chat failed" },
-      { status: 500 },
-    );
-  }
+  return chatStreamResponse(userId, threadId, req.signal, { turn_kind: "confirm" });
 }
