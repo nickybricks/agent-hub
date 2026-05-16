@@ -39,7 +39,7 @@ import {
 } from "./analyzer-db-pg";
 import { previewRule, applyRule } from "./apply-rule";
 
-export type ToolKind = "read" | "mutate";
+export type ToolKind = "read" | "mutate" | "ask";
 
 export interface ToolSpec {
   name: string;
@@ -64,6 +64,25 @@ const AUDIT_KINDS: AuditFindingKind[] = [
 ];
 
 export const TOOL_SPECS: ToolSpec[] = [
+  {
+    name: "ask_user",
+    kind: "ask",
+    description:
+      "Ask the user a clarifying question when discrete choices exist. Provide 2–4 short predefined options they can click; they may also answer freely. Ends your turn until they reply. Prefer this over a plain question when the answer is a choice.",
+    schema: {
+      type: "object",
+      properties: {
+        question: { type: "string", description: "the clarifying question" },
+        options: {
+          type: "array",
+          items: { type: "string" },
+          description: "2–4 short answer options the user can click",
+        },
+      },
+      required: ["question", "options"],
+      additionalProperties: false,
+    },
+  },
   {
     name: "list_proposed_folders",
     kind: "read",

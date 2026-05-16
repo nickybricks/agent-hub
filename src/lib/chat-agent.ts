@@ -44,7 +44,7 @@ Rules:
 - Read-only tools run automatically. Mutating tools require the user's explicit confirmation — the UI shows an Apply/Cancel card after you request one; never assume it succeeded until you see a tool result.
 - Request at most ONE mutating action at a time. After it resolves, continue.
 - Never invent ids, folder paths, rule ids, or sender addresses. If you need one, look it up with a read tool first.
-- When uncertain, ask a clarifying question instead of guessing.
+- When uncertain, ask a clarifying question instead of guessing. When the answer is a discrete choice, call \`ask_user\` with 2–4 short options instead of a free-form question.
 - Cite memories inline as [m<id>] when you rely on one.
 - Be concise and answer in the user's language.`;
 
@@ -183,6 +183,7 @@ export type ChatEvent =
   | { type: "token"; delta: string }
   | { type: "tool"; name: string; phase: "running" | "done"; summary?: string }
   | { type: "pending"; pending: PendingToolCall }
+  | { type: "ask"; question: string; options: string[] }
   | { type: "final"; assistantText: string };
 
 /**
@@ -227,6 +228,21 @@ export async function* streamLoop(
       await appendMessage(userId, { thread_id: threadId, role: "assistant", content: answer });
       await touchThread(userId, threadId);
       yield { type: "final", assistantText: answer };
+      return;
+    }
+
+    // A clarifying question ends the turn; the user's reply is the next turn.
+    const ask = toolCalls.find((tc) => getToolSpec(tc.name)?.kind === "ask");
+    if (ask) {
+      const question = String(ask.args.question ?? "").trim();
+      const options = Array.isArray(ask.args.options)
+        ? (ask.args.options as unknown[]).map(String).filter(Boolean).slice(0, 4)
+        : [];
+      const reasoning = text.trim();
+      const content = reasoning && reasoning !== question ? `${reasoning}\n\n${question}` : question;
+      await appendMessage(userId, { thread_id: threadId, role: "assistant", content });
+      await touchThread(userId, threadId);
+      yield { type: "ask", question, options };
       return;
     }
 
