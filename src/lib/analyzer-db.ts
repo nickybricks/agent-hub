@@ -182,6 +182,39 @@ function initSchema(db: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_memory_kind_key ON agent_memory(kind, key);
     CREATE INDEX IF NOT EXISTS idx_memory_active ON agent_memory(superseded_by);
+
+    CREATE TABLE IF NOT EXISTS chat_threads (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      thread_id INTEGER NOT NULL REFERENCES chat_threads(id),
+      role TEXT NOT NULL,
+      content TEXT,
+      tool_call_ref INTEGER,
+      tool_name TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_chat_messages_thread ON chat_messages(thread_id, id);
+
+    CREATE TABLE IF NOT EXISTS tool_calls (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      thread_id INTEGER NOT NULL REFERENCES chat_threads(id),
+      tool_name TEXT NOT NULL,
+      tool_input TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      preview TEXT,
+      result TEXT,
+      reasoning TEXT,
+      created_at TEXT NOT NULL,
+      decided_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_tool_calls_thread ON tool_calls(thread_id, id);
+    CREATE INDEX IF NOT EXISTS idx_tool_calls_status ON tool_calls(status);
   `);
 
   if (!columnExists(db, "messages", "headers_json")) {

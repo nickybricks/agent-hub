@@ -1,149 +1,221 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 
-interface CitedMemory {
+interface ChatMsg {
   id: number;
-  kind: string;
-  key: string | null;
-  content: string;
+  role: "user" | "assistant" | "tool";
+  content: string | null;
+  tool_name: string | null;
   created_at: string;
-  source: string;
 }
 
-interface AskResponse {
-  answer: string;
-  cited_memories: CitedMemory[];
+interface Pending {
+  id: number;
+  tool_name: string;
+  input: Record<string, unknown>;
+  summary: string;
 }
 
-function renderAnswerWithCitations(answer: string, cited: CitedMemory[]): React.ReactNode {
-  const byId = new Map(cited.map((m) => [m.id, m]));
-  const parts: React.ReactNode[] = [];
-  const regex = /\[m(\d+)\]/g;
-  let last = 0;
-  let match: RegExpExecArray | null;
-  let key = 0;
-  while ((match = regex.exec(answer)) !== null) {
-    if (match.index > last) parts.push(answer.slice(last, match.index));
-    const id = Number(match[1]);
-    const mem = byId.get(id);
-    parts.push(
-      <span
-        key={`cite-${key++}`}
-        title={mem?.content ?? `Memory #${id}`}
-        className="inline-flex items-center rounded bg-accent px-1.5 py-0.5 text-xs font-mono text-accent-foreground align-baseline mx-0.5"
-      >
-        m{id}
-      </span>
-    );
-    last = match.index + match[0].length;
-  }
-  if (last < answer.length) parts.push(answer.slice(last));
-  return parts;
+interface ChatResponse {
+  threadId?: number;
+  thread?: { id: number };
+  messages: ChatMsg[];
+  pending: Pending | null;
+  error?: string;
 }
 
-export default function AskPage() {
-  const [question, setQuestion] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [response, setResponse] = useState<AskResponse | null>(null);
+export default function ChatPage() {
+  const [threadId, setThreadId] = useState<number | null>(null);
+  const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const [pending, setPending] = useState<Pending | null>(null);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const endRef = useRef<HTMLDivElement>(null);
 
-  async function ask() {
-    if (!question.trim()) return;
-    setLoading(true);
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, pending, busy]);
+
+  // Resume the most recent thread on mount.
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/mail-analyzer/chat");
+        const data = await res.json();
+        const latest = data.threads?.[0];
+        if (latest) {
+          const t = await fetch(`/api/mail-analyzer/chat?threadId=${latest.id}`);
+          const td: ChatResponse = await t.json();
+          if (t.ok) {
+            setThreadId(latest.id);
+            setMessages(td.messages ?? []);
+            setPending(td.pending ?? null);
+          }
+        }
+      } catch {
+        /* fresh start is fine */
+      }
+    })();
+  }, []);
+
+  function apply(data: ChatResponse) {
+    if (data.error) {
+      setError(data.error);
+      return;
+    }
+    if (data.threadId) setThreadId(data.threadId);
+    setMessages(data.messages ?? []);
+    setPending(data.pending ?? null);
+  }
+
+  async function send() {
+    const message = input.trim();
+    if (!message || busy) return;
+    setBusy(true);
     setError(null);
-    setResponse(null);
+    setInput("");
     try {
-      const res = await fetch("/api/mail-analyzer/ask", {
+      const res = await fetch("/api/mail-analyzer/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({ threadId, message }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
-      setResponse(data);
+      apply(await res.json());
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
   }
 
+  async function decide(decision: "apply" | "cancel") {
+    if (!pending || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/mail-analyzer/chat/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ toolCallId: pending.id, decision }),
+      });
+      apply(await res.json());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function newChat() {
+    setThreadId(null);
+    setMessages([]);
+    setPending(null);
+    setError(null);
+  }
+
   return (
-    <div className="mx-auto max-w-3xl p-6 space-y-6">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Ask your mailbox</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Natural-language Q&amp;A over every LLM and user decision the assistant has recorded. Answers cite the
-          underlying memories.
-        </p>
+    <div className="mx-auto max-w-3xl p-6 space-y-4">
+      <header className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Mailbox chat</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Ask about your mailbox or tell the agent to act on it. It explains its reasoning and
+            asks before every change.
+          </p>
+        </div>
+        <Button variant="ghost" onClick={newChat} disabled={busy}>
+          New chat
+        </Button>
       </header>
 
-      <div className="card p-4 space-y-3">
-        <textarea
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          placeholder="e.g. What folders did the agent propose? Why did I reject the 'Receipts' rule?"
-          className="w-full min-h-[88px] rounded-md border border-input bg-background p-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-          onKeyDown={(e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") ask();
-          }}
-        />
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-muted-foreground">⌘/Ctrl + Enter to send</span>
-          <Button onClick={ask} disabled={loading || !question.trim()}>
-            {loading ? "Thinking…" : "Ask"}
-          </Button>
-        </div>
+      <div className="space-y-3">
+        {messages.length === 0 && !busy && (
+          <div className="card p-4 text-sm text-muted-foreground">
+            e.g. “The folder proposals look off — walk me through them and suggest a cleaner
+            taxonomy.”
+          </div>
+        )}
+
+        {messages.map((m) => {
+          if (m.role === "tool") {
+            return (
+              <div
+                key={m.id}
+                className="text-xs font-mono text-muted-foreground border-l-2 border-border pl-3"
+              >
+                🔧 {m.tool_name}: {(m.content ?? "").slice(0, 300)}
+              </div>
+            );
+          }
+          const mine = m.role === "user";
+          return (
+            <div
+              key={m.id}
+              className={`card p-3 text-sm whitespace-pre-wrap leading-relaxed ${
+                mine ? "bg-accent/40 ml-8" : "mr-8"
+              }`}
+            >
+              <div className="text-xs text-muted-foreground mb-1">
+                {mine ? "You" : "Agent"}
+              </div>
+              {m.content}
+            </div>
+          );
+        })}
+
+        {pending && (
+          <div className="card p-4 border border-amber-500/50 space-y-3">
+            <div className="text-xs font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">
+              Confirmation required · {pending.tool_name}
+            </div>
+            <div className="text-sm">{pending.summary}</div>
+            <pre className="text-xs bg-muted/50 rounded p-2 overflow-x-auto">
+              {JSON.stringify(pending.input, null, 2)}
+            </pre>
+            <div className="flex gap-2">
+              <Button onClick={() => decide("apply")} disabled={busy}>
+                {busy ? "Working…" : "Apply"}
+              </Button>
+              <Button variant="ghost" onClick={() => decide("cancel")} disabled={busy}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {busy && !pending && (
+          <div className="text-sm text-muted-foreground">Agent is thinking…</div>
+        )}
+        <div ref={endRef} />
       </div>
 
       {error && (
-        <div className="card p-4 border border-red-500/40 text-sm text-red-600 dark:text-red-400">
+        <div className="card p-3 border border-red-500/40 text-sm text-red-600 dark:text-red-400">
           {error}
         </div>
       )}
 
-      {response && (
-        <div className="space-y-4">
-          <div className="card p-4">
-            <h2 className="text-sm font-medium text-muted-foreground mb-2">Answer</h2>
-            <div className="whitespace-pre-wrap text-sm leading-relaxed">
-              {renderAnswerWithCitations(response.answer, response.cited_memories)}
-            </div>
-          </div>
-
-          {response.cited_memories.length > 0 && (
-            <div className="space-y-2">
-              <h2 className="text-sm font-medium text-muted-foreground">
-                Memories cited ({response.cited_memories.length})
-              </h2>
-              <ul className="space-y-2">
-                {response.cited_memories.map((m) => (
-                  <li key={m.id} className="card p-3 text-sm">
-                    <div className="flex items-center gap-2 mb-1 text-xs text-muted-foreground">
-                      <span className="font-mono">m{m.id}</span>
-                      <span>·</span>
-                      <span>{m.kind}</span>
-                      <span>·</span>
-                      <span>{m.source}</span>
-                      <span>·</span>
-                      <span>{m.created_at.slice(0, 16).replace("T", " ")}</span>
-                      {m.key && (
-                        <>
-                          <span>·</span>
-                          <span className="font-mono">{m.key}</span>
-                        </>
-                      )}
-                    </div>
-                    <div>{m.content}</div>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+      <div className="card p-3 space-y-2 sticky bottom-4">
+        <textarea
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="Ask or instruct…"
+          disabled={busy}
+          className="w-full min-h-[72px] rounded-md border border-input bg-background p-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+          onKeyDown={(e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") send();
+          }}
+        />
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-muted-foreground">⌘/Ctrl + Enter to send</span>
+          <Button onClick={send} disabled={busy || !input.trim()}>
+            Send
+          </Button>
         </div>
-      )}
+      </div>
     </div>
   );
 }

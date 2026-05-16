@@ -23,6 +23,7 @@ const TABLES = [
   "audit_runs", "audit_message_overrides", "proposed_folders",
   "folder_rules", "move_log", "agent_memory",
   "triage_runs", "review_queue",
+  "chat_threads", "chat_messages", "tool_calls",
 ];
 
 async function main() {
