@@ -1,7 +1,11 @@
 /**
- * Phase 3.5 agentic-chat loop. Read-only tools auto-run inside one request;
- * mutating tools pause the loop with a persisted pending tool_call that the
+ * Phase 3.5 agentic-chat loop (streaming). Read-only tools auto-run inside one
+ * request; mutating tools pause the loop with a persisted pending tool_call the
  * user must confirm via /chat/confirm before execute fires.
+ *
+ * Streams token + reasoning + tool events (ac6). When the configured provider
+ * is Anthropic, Claude extended-thinking is enabled and surfaced as `thinking`
+ * events (ac1). LangSmith spans wrap the turn + each tool (ac7).
  *
  * Provider: the configured digest provider when it's anthropic/openai
  * (reliable tool-calling), otherwise transparent Anthropic fallback.
@@ -10,12 +14,15 @@
 import { readFileSync } from "fs";
 import { join } from "path";
 import {
-  AIMessage,
+  AIMessageChunk,
   HumanMessage,
+  AIMessage,
   SystemMessage,
   ToolMessage,
   type BaseMessage,
 } from "@langchain/core/messages";
+import { ChatAnthropic } from "@langchain/anthropic";
+import { traceable } from "langsmith/traceable";
 import { createLLM, type LLMConfig } from "@/agent/summarize";
 import { withGuardrail } from "./prompt-safety";
 import { TOOL_SPECS, getToolSpec, runReadTool, previewMutation } from "./chat-tools";
@@ -27,6 +34,8 @@ import { writeMemoryPg } from "./analyzer-db-pg";
 
 const MAX_ITERS = 6;
 const ANTHROPIC_FALLBACK_MODEL = "claude-haiku-4-5-20251001";
+const THINKING_BUDGET_TOKENS = 2048;
+const THINKING_MAX_TOKENS = 4096;
 
 const SYSTEM_PROMPT = `You are the user's email mailbox agent. You can both answer questions about the mailbox and act on it through tools.
 
@@ -66,16 +75,28 @@ export function finishToolCall(
     ? pg.finishToolCallPg(userId, id, status, result)
     : Promise.resolve(sq.finishToolCall(id, status, result));
 }
-export function persistMemory(
-  userId: string | null,
-  content: string,
-  key: string | null,
-) {
+export async function loadThreadState(userId: string | null, threadId: number) {
+  const messages = await listMessages(userId, threadId);
+  const pendingRow = userId
+    ? await pg.getPendingToolCallPg(userId, threadId)
+    : sq.getPendingToolCall(threadId);
+  const pending = pendingRow
+    ? {
+        id: pendingRow.id,
+        tool_name: pendingRow.tool_name,
+        input: JSON.parse(pendingRow.tool_input) as Record<string, unknown>,
+        summary: pendingRow.preview ? JSON.parse(pendingRow.preview).summary : pendingRow.tool_name,
+      }
+    : null;
+  return { messages, pending };
+}
+
+export function persistMemory(userId: string | null, content: string, key: string | null) {
   const memo = { kind: "user_pref" as const, key, content, source: "user_decision" as const };
   return userId ? writeMemoryPg(userId, memo) : Promise.resolve(writeMemory(memo));
 }
 
-// ── LLM config ───────────────────────────────────────────────────────────────
+// ── LLM config + model ───────────────────────────────────────────────────────
 
 function resolveChatLLMConfig(): LLMConfig {
   const cfg = JSON.parse(readFileSync(join(process.cwd(), "data", "config.json"), "utf-8"));
@@ -95,6 +116,31 @@ const OPENAI_TOOLS = TOOL_SPECS.map((s) => ({
   function: { name: s.name, description: s.description, parameters: s.schema },
 }));
 
+interface BoundModel {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  stream: (msgs: BaseMessage[], opts: Record<string, unknown>) => Promise<AsyncIterable<any>>;
+  thinking: boolean;
+}
+
+/** Build a tool-bound chat model; enable Claude extended thinking for Anthropic. */
+function buildModel(config: LLMConfig): BoundModel {
+  if (config.provider === "anthropic") {
+    const apiKey =
+      process.env.ANTHROPIC_API_KEY || config.apiKeys?.anthropic || config.apiKey;
+    const model = new ChatAnthropic({
+      apiKey,
+      model: config.model,
+      maxTokens: THINKING_MAX_TOKENS,
+      thinking: { type: "enabled", budget_tokens: THINKING_BUDGET_TOKENS },
+    }).bindTools(OPENAI_TOOLS as never);
+    return { stream: (m, o) => model.stream(m, o), thinking: true };
+  }
+  const llm = createLLM(config);
+  if (!llm.bindTools) throw new Error(`provider ${config.provider} does not support tool calling`);
+  const bound = llm.bindTools(OPENAI_TOOLS as never);
+  return { stream: (m, o) => bound.stream(m, o), thinking: false };
+}
+
 // ── transcript → LangChain messages ──────────────────────────────────────────
 
 function toLangChain(history: ChatMessage[]): BaseMessage[] {
@@ -110,6 +156,21 @@ function toLangChain(history: ChatMessage[]): BaseMessage[] {
   return out;
 }
 
+// Extract text + reasoning deltas from a streamed chunk (provider-agnostic).
+function splitDelta(content: unknown): { text: string; thinking: string } {
+  if (typeof content === "string") return { text: content, thinking: "" };
+  if (!Array.isArray(content)) return { text: "", thinking: "" };
+  let text = "";
+  let thinking = "";
+  for (const item of content as Array<Record<string, unknown>>) {
+    const t = String(item.type ?? "");
+    if (t === "text" || t === "text_delta") text += String(item.text ?? "");
+    else if (t.includes("thinking") || t.includes("reasoning"))
+      thinking += String(item.thinking ?? item.reasoning ?? item.text ?? "");
+  }
+  return { text, thinking };
+}
+
 export interface PendingToolCall {
   id: number;
   tool_name: string;
@@ -117,43 +178,56 @@ export interface PendingToolCall {
   summary: string;
 }
 
-export interface TurnResult {
-  assistantText: string;
-  pending: PendingToolCall | null;
-}
+export type ChatEvent =
+  | { type: "thinking"; delta: string }
+  | { type: "token"; delta: string }
+  | { type: "tool"; name: string; phase: "running" | "done"; summary?: string }
+  | { type: "pending"; pending: PendingToolCall }
+  | { type: "final"; assistantText: string };
 
 /**
- * Rebuild context from the persisted transcript and drive the model until it
- * produces a final answer or requests a mutating action (which pauses for
- * confirmation). Caller must have already persisted the triggering message.
+ * Rebuild context from the persisted transcript and drive the model, yielding
+ * stream events until a final answer or a mutating action that pauses for
+ * confirmation. Caller must have already persisted the triggering message.
  */
-export async function runLoop(userId: string | null, threadId: number): Promise<TurnResult> {
+export async function* streamLoop(
+  userId: string | null,
+  threadId: number,
+  signal?: AbortSignal,
+): AsyncGenerator<ChatEvent> {
   const config = resolveChatLLMConfig();
-  const llm = createLLM(config);
-  if (!llm.bindTools) throw new Error(`provider ${config.provider} does not support tool calling`);
-  const model = llm.bindTools(OPENAI_TOOLS as never);
+  const model = buildModel(config);
 
   const history = await listMessages(userId, threadId);
   const msgs: BaseMessage[] = [new SystemMessage(config.systemPrompt), ...toLangChain(history)];
+  const callOpts = { signal, tags: ["mail-analyzer", "chat", `provider:${config.provider}`] };
 
   let lastText = "";
 
   for (let iter = 0; iter < MAX_ITERS; iter++) {
-    const res = (await model.invoke(msgs, {
-      tags: ["mail-analyzer", "chat", `provider:${config.provider}`],
-    })) as AIMessage;
+    let gathered: AIMessageChunk | undefined;
+    const stream = await model.stream(msgs, callOpts);
+    for await (const chunk of stream) {
+      if (signal?.aborted) break;
+      gathered = gathered === undefined ? chunk : gathered.concat(chunk);
+      const { text, thinking } = splitDelta(chunk.content);
+      if (thinking) yield { type: "thinking", delta: thinking };
+      if (text) yield { type: "token", delta: text };
+    }
+    if (!gathered) break;
 
     const text =
-      typeof res.content === "string"
-        ? res.content
-        : res.content.map((c) => ("text" in c ? c.text : "")).join("");
-    const toolCalls = res.tool_calls ?? [];
+      typeof gathered.content === "string"
+        ? gathered.content
+        : splitDelta(gathered.content).text;
+    const toolCalls = gathered.tool_calls ?? [];
 
     if (toolCalls.length === 0) {
       const answer = text.trim() || "(no response)";
       await appendMessage(userId, { thread_id: threadId, role: "assistant", content: answer });
       await touchThread(userId, threadId);
-      return { assistantText: answer, pending: null };
+      yield { type: "final", assistantText: answer };
+      return;
     }
 
     // A mutating request pauses the loop for user confirmation.
@@ -174,18 +248,24 @@ export async function runLoop(userId: string | null, threadId: number): Promise<
         reasoning: reasoning || null,
       });
       await touchThread(userId, threadId);
-      return {
-        assistantText: reasoning,
+      yield {
+        type: "pending",
         pending: { id: tcId, tool_name: mutate.name, input: mutate.args, summary: preview.summary },
       };
+      return;
     }
 
-    // Read-only calls: execute all, feed results back, keep looping.
-    msgs.push(res);
+    // Read-only calls: execute all (each its own trace span), feed back, loop.
+    msgs.push(gathered);
     for (const tc of toolCalls) {
+      yield { type: "tool", name: tc.name, phase: "running" };
       let result: unknown;
       try {
-        result = await runReadTool(userId, tc.name, tc.args);
+        const runTool = traceable(
+          async () => runReadTool(userId, tc.name, tc.args),
+          { name: `tool.${tc.name}`, run_type: "tool", metadata: { args: tc.args } },
+        );
+        result = await runTool();
       } catch (e) {
         result = { error: e instanceof Error ? e.message : String(e) };
       }
@@ -197,13 +277,16 @@ export async function runLoop(userId: string | null, threadId: number): Promise<
         content: json.slice(0, 8000),
         tool_name: tc.name,
       });
+      yield { type: "tool", name: tc.name, phase: "done", summary: json.slice(0, 200) };
     }
     lastText = text;
+
+    if (signal?.aborted) break;
   }
 
   const fallback =
     lastText.trim() || "I hit the tool-call limit for this turn. Ask me to continue.";
   await appendMessage(userId, { thread_id: threadId, role: "assistant", content: fallback });
   await touchThread(userId, threadId);
-  return { assistantText: fallback, pending: null };
+  yield { type: "final", assistantText: fallback };
 }
