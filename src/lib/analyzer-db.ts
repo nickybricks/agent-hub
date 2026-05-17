@@ -873,6 +873,7 @@ export function updateMessageMailbox(messageId: string, mailboxId: number) {
 }
 
 export type MemoryKind =
+  | "user_profile"
   | "user_pref"
   | "sender_fact"
   | "rule_rationale"

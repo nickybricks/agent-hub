@@ -1297,6 +1297,18 @@ export async function listMemoriesPg(
   return (rows as unknown as AgentMemory[]).map((m) => ({ ...m, id: Number(m.id) }));
 }
 
+export async function supersedeMemoryPg(
+  userId: string,
+  oldId: number,
+  newId: number,
+): Promise<void> {
+  const db = getDrizzleDb();
+  await db.execute(sql`
+    UPDATE agent_memory SET superseded_by = ${newId}
+    WHERE id = ${oldId} AND user_id = ${userId}
+  `);
+}
+
 export async function touchMemoryUsedPg(userId: string, id: number): Promise<void> {
   const db = getDrizzleDb();
   await db.execute(sql`

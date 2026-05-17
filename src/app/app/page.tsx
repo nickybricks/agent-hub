@@ -6,6 +6,7 @@ import HomePane from "@/components/panes/HomePane";
 import ProposalsPane from "@/components/panes/ProposalsPane";
 import AuditPane from "@/components/panes/AuditPane";
 import HistoryPane from "@/components/panes/HistoryPane";
+import ProfilePane from "@/components/panes/ProfilePane";
 
 const TABS = ["Home", "Proposals", "Audit", "Profile", "History"] as const;
 type Tab = (typeof TABS)[number];
@@ -37,15 +38,7 @@ export default function AppShell() {
           {tab === "Proposals" && <ProposalsPane />}
           {tab === "Audit" && <AuditPane />}
           {tab === "History" && <HistoryPane />}
-          {tab === "Profile" && (
-            <div className="mx-auto max-w-2xl px-8 py-10">
-              <h1 className="mb-1 text-2xl font-semibold tracking-tight">Profile</h1>
-              <p className="text-sm text-muted">
-                Persona, questionnaire answers, and memories will live here. Coming with the
-                onboarding chat flow.
-              </p>
-            </div>
-          )}
+          {tab === "Profile" && <ProfilePane />}
         </div>
       </section>
 
