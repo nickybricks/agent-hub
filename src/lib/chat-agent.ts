@@ -98,23 +98,68 @@ export function persistMemory(userId: string | null, content: string, key: strin
 
 // ── LLM config + model ───────────────────────────────────────────────────────
 
-function resolveChatLLMConfig(): LLMConfig {
+// Cheap model for trivial factual turns; smart model for anything agentic.
+const CHEAP_MODEL = { provider: "openai" as const, model: "gpt-4o-mini" };
+const SMART_MODEL = { provider: "anthropic" as const, model: "claude-sonnet-4-6" };
+
+// Words that signal a decision / multi-step / action turn → smart model.
+const COMPLEX_RE =
+  /\b(reorgani|restructur|propos|suggest|recommend|plan|analy|compar|why|decid|merg|renam|appl(y|ies)|audit|fix|improv|better|should i|help me|organi[sz]|sort|review|strateg|aggressiv|taxonom|structur|optimi|consolidat|bulk|clean ?up|every|all of|each|move|delete|archiv|undo|rule|spam|categor)\b/i;
+
+/**
+ * Per-turn complexity classifier. Conservative: anything that looks like a
+ * decision, action, ambiguity, or an ongoing agentic thread → "complex"
+ * (protects ask_user / tool reliability, which gpt-4o-mini handles poorly).
+ * Only clearly trivial single-shot lookups → "simple".
+ *
+ * SEAM: swap this body for a tiny classifier LLM call later if the heuristic
+ * misroutes too often — callers only depend on the return value.
+ */
+function classifyComplexity(history: ChatMessage[]): "simple" | "complex" {
+  if (history.length === 0) return "complex";
+  const last = history[history.length - 1];
+  // Confirm/resume turns continue agentic work (last msg is a tool result).
+  if (last.role !== "user") return "complex";
+  const text = last.content ?? "";
+  if (text.length > 180) return "complex";
+  if (COMPLEX_RE.test(text)) return "complex";
+  // An already tool-heavy thread is an agentic conversation — stay smart.
+  if (history.filter((m) => m.role === "tool").length >= 2) return "complex";
+  return "simple";
+}
+
+function pickModel(
+  complexity: "simple" | "complex",
+  hasOpenAI: boolean,
+  hasAnthropic: boolean,
+): { provider: "openai" | "anthropic"; model: string } {
+  if (complexity === "complex") {
+    if (hasAnthropic) return SMART_MODEL;
+    if (hasOpenAI) return CHEAP_MODEL; // degraded but functional
+    return SMART_MODEL; // key resolver will throw a clear error
+  }
+  if (hasOpenAI) return CHEAP_MODEL;
+  if (hasAnthropic) return { provider: "anthropic", model: ANTHROPIC_FALLBACK_MODEL };
+  return CHEAP_MODEL;
+}
+
+/**
+ * Resolve the chat model for this turn. Fully provider-managed: the user
+ * never sees or controls the model or system prompt. Cheap model for trivial
+ * questions, smart model for agentic ones — automatic, to save cost.
+ */
+function resolveChatLLMConfig(history: ChatMessage[]): LLMConfig {
   const cfg = JSON.parse(readFileSync(join(process.cwd(), "data", "config.json"), "utf-8"));
   const agent = cfg.agents?.find((a: { id: string }) => a.id === "newsletter-summarizer");
   if (!agent?.settings?.llm) throw new Error("No LLM config in data/config.json");
   const llm = { ...agent.settings.llm } as LLMConfig;
-  const hasAnthropicKey = !!(process.env.ANTHROPIC_API_KEY || llm.apiKeys?.anthropic);
-  if (hasAnthropicKey) {
-    // The chat agent prefers Claude regardless of the configured digest
-    // provider: it follows tool/instruction directives (e.g. ask_user) far
-    // more reliably than gpt-4o-mini. Other features keep their provider.
-    llm.provider = "anthropic";
-    if (!/^claude/i.test(llm.model)) llm.model = ANTHROPIC_FALLBACK_MODEL;
-  } else if (llm.provider !== "anthropic" && llm.provider !== "openai") {
-    // Ollama / Google with no Anthropic key: still not reliable for this UX.
-    llm.provider = "anthropic";
-    llm.model = ANTHROPIC_FALLBACK_MODEL;
-  }
+
+  const hasAnthropic = !!(process.env.ANTHROPIC_API_KEY || llm.apiKeys?.anthropic);
+  const hasOpenAI = !!(process.env.OPENAI_API_KEY || llm.apiKeys?.openai);
+  const pick = pickModel(classifyComplexity(history), hasOpenAI, hasAnthropic);
+  llm.provider = pick.provider;
+  llm.model = pick.model;
+
   return { ...llm, systemPrompt: withGuardrail(SYSTEM_PROMPT) };
 }
 
@@ -203,12 +248,15 @@ export async function* streamLoop(
   threadId: number,
   signal?: AbortSignal,
 ): AsyncGenerator<ChatEvent> {
-  const config = resolveChatLLMConfig();
+  const history = await listMessages(userId, threadId);
+  const config = resolveChatLLMConfig(history);
   const model = buildModel(config);
 
-  const history = await listMessages(userId, threadId);
   const msgs: BaseMessage[] = [new SystemMessage(config.systemPrompt), ...toLangChain(history)];
-  const callOpts = { signal, tags: ["mail-analyzer", "chat", `provider:${config.provider}`] };
+  const callOpts = {
+    signal,
+    tags: ["mail-analyzer", "chat", `provider:${config.provider}`, `model:${config.model}`],
+  };
 
   let lastText = "";
 
