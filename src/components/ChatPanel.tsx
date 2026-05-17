@@ -52,9 +52,16 @@ export default function ChatPanel() {
 
   // Onboarding surfaces.
   const [connectCard, setConnectCard] = useState(false);
-  const [progress, setProgress] = useState<string[]>([]);
+  const [pipeline, setPipeline] = useState<{
+    phase: string;
+    scanned?: number;
+    classified?: number;
+    totalSenders?: number;
+    error?: string;
+  } | null>(null);
   const [persona, setPersona] = useState<string | null>(null);
   const [personaEdit, setPersonaEdit] = useState("");
+  const personaFetched = useRef(false);
   const [cProvider, setCProvider] = useState<"imap" | "gmail" | "outlook">("imap");
   const [cImap, setCImap] = useState({ host: "", port: "993", user: "", password: "" });
   const [cBusy, setCBusy] = useState(false);
@@ -89,7 +96,8 @@ export default function ChatPanel() {
         setAsking(null);
         setConnectCard(false);
         setPersona(null);
-        setProgress([]);
+        setPipeline(null);
+        personaFetched.current = false;
         setError(null);
       }
     } catch {
@@ -116,6 +124,41 @@ export default function ChatPanel() {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Poll the durable scan→classify→propose pipeline and drive the loading view.
+  useEffect(() => {
+    if (!pipeline || pipeline.phase === "done" || pipeline.phase === "error") return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const s = await fetch("/api/mail-analyzer/onboarding/pipeline").then((r) => r.json());
+        if (cancelled || !s || !s.phase) return;
+        setPipeline(s);
+        if (s.phase === "persona_ready" && !personaFetched.current && !persona) {
+          personaFetched.current = true;
+          const d = await fetch("/api/mail-analyzer/onboarding/persona-draft", {
+            method: "POST",
+          }).then((r) => r.json());
+          if (!cancelled && d?.persona) {
+            setPersona(d.persona);
+            setPersonaEdit(d.persona);
+          }
+        }
+        if (s.phase === "done" && threadId != null) {
+          await loadThread(threadId);
+        }
+      } catch {
+        /* transient — keep polling */
+      }
+    };
+    const id = setInterval(tick, 4000);
+    tick();
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pipeline?.phase, threadId]);
 
   function resetLive() {
     setLiveText("");
@@ -161,11 +204,9 @@ export default function ChatPanel() {
           setAsking({ question: ev.question, options: ev.options ?? [] });
         } else if (ev.type === "connect") {
           setConnectCard(true);
-        } else if (ev.type === "progress") {
-          setProgress((p) => [...p, ev.label]);
-        } else if (ev.type === "persona") {
-          setPersona(ev.text);
-          setPersonaEdit(ev.text);
+        } else if (ev.type === "pipeline") {
+          personaFetched.current = false;
+          setPipeline({ phase: "scanning" });
         } else if (ev.type === "done") {
           if (ev.threadId) setThreadId(ev.threadId);
           setMessages(ev.messages ?? []);
@@ -184,7 +225,6 @@ export default function ChatPanel() {
     setBusy(true);
     setError(null);
     setAsking(null);
-    setProgress([]);
     resetLive();
     const ac = new AbortController();
     abortRef.current = ac;
@@ -277,8 +317,8 @@ export default function ChatPanel() {
         throw new Error(d.error ?? `HTTP ${res.status}`);
       }
       setPersona(null);
-      setProgress([]);
-      await loadThread(threadId);
+      // Keep polling: pipeline continues into proposing → done, and the
+      // poll's `done` transition reloads the thread.
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -298,7 +338,8 @@ export default function ChatPanel() {
     setAsking(null);
     setConnectCard(false);
     setPersona(null);
-    setProgress([]);
+    setPipeline(null);
+    personaFetched.current = false;
     setError(null);
     resetLive();
   }
@@ -432,17 +473,39 @@ export default function ChatPanel() {
           </div>
         )}
 
-        {progress.length > 0 && (
-          <div className="card space-y-1 p-3 text-sm">
-            {progress.map((p, i) => (
-              <div
-                key={i}
-                className={i === progress.length - 1 ? "" : "text-muted-foreground"}
-              >
-                {i === progress.length - 1 && busy ? "⏳ " : "✓ "}
-                {p}
+        {pipeline && pipeline.phase !== "done" && !persona && (
+          <div className="card space-y-2 border border-sky-500/40 p-4 text-sm">
+            {pipeline.phase === "error" ? (
+              <div className="text-red-600 dark:text-red-400">
+                Scan failed: {pipeline.error}. Ask me to try again.
               </div>
-            ))}
+            ) : (
+              <>
+                <div className="flex items-center gap-2 font-medium">
+                  <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-sky-500" />
+                  {pipeline.phase === "scanning"
+                    ? "Scanning your mailbox…"
+                    : pipeline.phase === "classifying"
+                      ? "Classifying senders…"
+                      : pipeline.phase === "persona_ready"
+                        ? "Building your profile…"
+                        : "Creating your folder proposals…"}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {pipeline.phase === "scanning" &&
+                    `${(pipeline.scanned ?? 0).toLocaleString()} messages so far`}
+                  {pipeline.phase === "classifying" &&
+                    `${(pipeline.classified ?? 0).toLocaleString()}${
+                      pipeline.totalSenders
+                        ? ` / ${pipeline.totalSenders.toLocaleString()}`
+                        : ""
+                    } senders`}
+                  {(pipeline.phase === "persona_ready" ||
+                    pipeline.phase === "proposing") &&
+                    "This can take a few minutes on a large mailbox — you can keep this open."}
+                </div>
+              </>
+            )}
           </div>
         )}
 

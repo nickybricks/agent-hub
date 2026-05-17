@@ -32,7 +32,6 @@ import type { ChatMessage } from "./chat-db";
 import { writeMemory } from "./analyzer-db";
 import { writeMemoryPg, listMemoriesPg } from "./analyzer-db-pg";
 import { getMailCredentials } from "./credentials";
-import { runOnboardingPipeline } from "./onboarding";
 
 const MAX_ITERS = 6;
 const ANTHROPIC_FALLBACK_MODEL = "claude-haiku-4-5-20251001";
@@ -331,8 +330,7 @@ export type ChatEvent =
   | { type: "pending"; pending: PendingToolCall }
   | { type: "ask"; question: string; options: string[] }
   | { type: "connect" }
-  | { type: "progress"; label: string }
-  | { type: "persona"; text: string }
+  | { type: "pipeline" }
   | { type: "final"; assistantText: string };
 
 /**
@@ -428,36 +426,24 @@ export async function* streamLoop(
         return;
       }
 
-      // run_pipeline: scan + classify with streamed progress, then a persona draft.
+      // run_pipeline: kick off the durable scan→classify Inngest chain and hand
+      // off to the client, which polls the pipeline status and renders a live
+      // loading view through scan → classify → persona → propose → done. We do
+      // NOT wait here — a full first scan far exceeds a request's lifetime.
       if (!userId) {
         yield { type: "final", assistantText: "Onboarding is only available for signed-in accounts." };
         return;
       }
-      try {
-        let persona = "";
-        for await (const ev of runOnboardingPipeline(userId)) {
-          if (signal?.aborted) break;
-          if (ev.kind === "progress") yield { type: "progress", label: ev.label };
-          else persona = ev.text;
-        }
-        await appendMessage(userId, {
-          thread_id: threadId,
-          role: "tool",
-          tool_name: "run_pipeline",
-          content: "Scan + classify complete. Draft persona prepared.",
-        });
-        await touchThread(userId, threadId);
-        yield { type: "persona", text: persona };
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        await appendMessage(userId, {
-          thread_id: threadId,
-          role: "assistant",
-          content: `I hit a problem running the scan: ${msg}. You can ask me to try again.`,
-        });
-        await touchThread(userId, threadId);
-        yield { type: "final", assistantText: `Scan failed: ${msg}` };
-      }
+      const { inngest } = await import("@/inngest/client");
+      await inngest.send({ name: "mail/scan", data: { userId, chain: true } });
+      await appendMessage(userId, {
+        thread_id: threadId,
+        role: "tool",
+        tool_name: "run_pipeline",
+        content: "Started the mailbox scan + classification pipeline.",
+      });
+      await touchThread(userId, threadId);
+      yield { type: "pipeline" };
       return;
     }
 

@@ -5,7 +5,17 @@ export const mailScan = inngest.createFunction(
   async ({ event, step }) => {
     const userId = event.data.userId as string | undefined;
     const { runScan } = await import("../agent/analyze-mailbox");
-    return step.run("scan", () => runScan(userId));
+    const result = await step.run("scan", () => runScan(userId));
+    // Onboarding pipeline: scan → classify automatically (durable, not bound to
+    // any HTTP request). `chain: true` marks the follow-on so classify can chain
+    // onward to propose.
+    if (event.data.chain) {
+      await step.sendEvent("chain-classify", {
+        name: "mail/classify",
+        data: { userId, chain: true },
+      });
+    }
+    return result;
   },
 );
 
