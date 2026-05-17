@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans, Geist_Mono } from "next/font/google";
-import Sidebar, { MobileTopBar } from "@/components/Sidebar";
+import Chrome from "@/components/Chrome";
 import { ToastProvider } from "@/components/ui/Toast";
-import { PageTransition } from "@/components/ui/PageTransition";
 import "./globals.css";
 
 const jakarta = Plus_Jakarta_Sans({
@@ -50,11 +49,7 @@ export default function RootLayout({
       </head>
       <body className="min-h-full">
         <ToastProvider>
-          <Sidebar />
-          <MobileTopBar />
-          <main className="md:ml-[296px]">
-            <PageTransition>{children}</PageTransition>
-          </main>
+          <Chrome>{children}</Chrome>
         </ToastProvider>
       </body>
     </html>
