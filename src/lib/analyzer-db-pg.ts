@@ -392,6 +392,15 @@ export async function getScanRunPg(userId: string, id: number): Promise<ScanRunR
   return ((rows as unknown as ScanRunRowPg[])[0]) ?? null;
 }
 
+export async function getLatestScanRunPg(userId: string): Promise<ScanRunRowPg | null> {
+  const db = getDrizzleDb();
+  const rows = await db.execute(sql`
+    SELECT id, started_at, finished_at, messages_scanned, watermark_date, status, error
+    FROM scan_runs WHERE user_id = ${userId} ORDER BY id DESC LIMIT 1
+  `);
+  return ((rows as unknown as ScanRunRowPg[])[0]) ?? null;
+}
+
 // ── folder_rules / move_log / agent_memory writes ────────────────────────────
 
 export async function touchRuleAppliedPg(userId: string, id: number): Promise<void> {

@@ -30,7 +30,9 @@ import * as sq from "./chat-db";
 import * as pg from "./chat-db-pg";
 import type { ChatMessage } from "./chat-db";
 import { writeMemory } from "./analyzer-db";
-import { writeMemoryPg } from "./analyzer-db-pg";
+import { writeMemoryPg, listMemoriesPg } from "./analyzer-db-pg";
+import { getMailCredentials } from "./credentials";
+import { runOnboardingPipeline } from "./onboarding";
 
 const MAX_ITERS = 6;
 const ANTHROPIC_FALLBACK_MODEL = "claude-haiku-4-5-20251001";
@@ -47,6 +49,27 @@ Rules:
 - When you need ANY clarification, you MUST call the \`ask_user\` tool with the question and 2–4 short candidate answers — never ask a clarifying question as plain assistant text. The user can still type a free answer instead of clicking one. Only skip \`ask_user\` if there are genuinely no plausible candidate answers to offer.
 - Cite memories inline as [m<id>] when you rely on one.
 - Be concise and answer in the user's language.`;
+
+const ONBOARDING_SYSTEM_PROMPT = `You are onboarding a brand-new user of their email mailbox agent. Be warm, brief, and conversational — one short message at a time, never a wall of text. Drive the flow; the user should mostly just answer.
+
+The onboarding has a fixed order. A STATE line below tells you what's already done — always continue from the first incomplete step, never repeat a finished one:
+
+1. Connect mailbox. If the mailbox is NOT connected, call \`connect_mailbox\` (shows an in-chat connect card) and stop. Do nothing else until connected.
+2. Questionnaire. Once connected, ask these five questions ONE AT A TIME, in order. For the first three use \`ask_user\` with 2–4 short options; the last two are open free-text (ask in plain text):
+   a. mailbox_type — "What kind of mailbox is this?" (e.g. Personal, Work, Mixed)
+   b. folder_style — "How do you like things organised?" (e.g. A few broad folders, Many specific folders, Minimal — mostly search)
+   c. cleanup_aggressiveness — "How aggressively should I tidy up?" (e.g. Conservative, Balanced, Aggressive)
+   d. occupation — "What do you do? A sentence is plenty."
+   e. sacred — "Anything I should never touch or move? (people, folders, topics)"
+   After EACH answer, immediately call \`save_onboarding_answer\` with the matching key and the user's answer. Then ask the next question.
+3. Pipeline. When all five answers are saved, call \`run_pipeline\`. It scans + classifies the mailbox, streams progress, and presents a draft persona card. Stop after calling it.
+4. After the user confirms their persona, the system generates folder proposals. Tell them their profile is set and folder proposals are being prepared on the Proposals tab, and that they can ask you to walk through them.
+
+Rules:
+- Never ask a question without \`ask_user\` when discrete choices exist.
+- Never invent that a step is done — trust the STATE line.
+- Do not call any non-onboarding tools during onboarding.
+- Answer in the user's language. Keep every message to 1–3 sentences.`;
 
 // ── dual-path store ──────────────────────────────────────────────────────────
 
@@ -89,6 +112,39 @@ export async function loadThreadState(userId: string | null, threadId: number) {
       }
     : null;
   return { messages, pending };
+}
+
+/**
+ * Onboarding is complete once a `user_profile` memory exists. Local single-user
+ * dev (userId null) has no onboarding. Returns connection + answer state used to
+ * drive the onboarding system prompt.
+ */
+export async function onboardingState(userId: string | null): Promise<{
+  active: boolean;
+  connected: boolean;
+  answered: string[];
+}> {
+  if (!userId) return { active: false, connected: true, answered: [] };
+  const profile = await listMemoriesPg(userId, { kind: "user_profile", limit: 1 });
+  if (profile.length > 0) return { active: false, connected: true, answered: [] };
+
+  const prefs = await listMemoriesPg(userId, { kind: "user_pref", limit: 50 });
+  const answered = prefs
+    .map((p) => p.key ?? "")
+    .filter((k) => k.startsWith("onboarding:"))
+    .map((k) => k.replace("onboarding:", ""));
+
+  let connected = false;
+  try {
+    const c = await getMailCredentials(userId);
+    connected =
+      !!c.imap?.host && !!c.imap?.user && !!c.imap?.password
+        ? true
+        : !!c.gmail?.refreshToken || !!c.outlook?.refreshToken;
+  } catch {
+    connected = false;
+  }
+  return { active: true, connected, answered };
 }
 
 export function persistMemory(userId: string | null, content: string, key: string | null) {
@@ -274,6 +330,9 @@ export type ChatEvent =
   | { type: "tool"; name: string; phase: "running" | "done"; summary?: string }
   | { type: "pending"; pending: PendingToolCall }
   | { type: "ask"; question: string; options: string[] }
+  | { type: "connect" }
+  | { type: "progress"; label: string }
+  | { type: "persona"; text: string }
   | { type: "final"; assistantText: string };
 
 /**
@@ -289,6 +348,16 @@ export async function* streamLoop(
   const history = await listMessages(userId, threadId);
   const config = await resolveChatLLMConfig(history);
   const model = buildModel(config);
+
+  // Onboarding branch: swap the system prompt and inject a STATE line so the
+  // model always resumes from the first incomplete step.
+  const onb = await onboardingState(userId);
+  if (onb.active) {
+    const state = `STATE — mailbox connected: ${onb.connected ? "yes" : "NO"}; questionnaire answers saved: ${
+      onb.answered.length ? onb.answered.join(", ") : "none"
+    }.`;
+    config.systemPrompt = withGuardrail(`${ONBOARDING_SYSTEM_PROMPT}\n\n${state}`);
+  }
 
   const msgs: BaseMessage[] = [new SystemMessage(config.systemPrompt), ...toLangChain(history)];
   const callOpts = {
@@ -336,6 +405,59 @@ export async function* streamLoop(
       await appendMessage(userId, { thread_id: threadId, role: "assistant", content });
       await touchThread(userId, threadId);
       yield { type: "ask", question, options };
+      return;
+    }
+
+    // Onboarding actions: connect card or the scan/classify/persona pipeline.
+    const onboard = toolCalls.find((tc) => getToolSpec(tc.name)?.kind === "onboard");
+    if (onboard) {
+      const reasoning = text.trim();
+      if (reasoning) {
+        await appendMessage(userId, { thread_id: threadId, role: "assistant", content: reasoning });
+      }
+
+      if (onboard.name === "connect_mailbox") {
+        await appendMessage(userId, {
+          thread_id: threadId,
+          role: "tool",
+          tool_name: "connect_mailbox",
+          content: "Showed the connect-mailbox card; waiting for the user to connect.",
+        });
+        await touchThread(userId, threadId);
+        yield { type: "connect" };
+        return;
+      }
+
+      // run_pipeline: scan + classify with streamed progress, then a persona draft.
+      if (!userId) {
+        yield { type: "final", assistantText: "Onboarding is only available for signed-in accounts." };
+        return;
+      }
+      try {
+        let persona = "";
+        for await (const ev of runOnboardingPipeline(userId)) {
+          if (signal?.aborted) break;
+          if (ev.kind === "progress") yield { type: "progress", label: ev.label };
+          else persona = ev.text;
+        }
+        await appendMessage(userId, {
+          thread_id: threadId,
+          role: "tool",
+          tool_name: "run_pipeline",
+          content: "Scan + classify complete. Draft persona prepared.",
+        });
+        await touchThread(userId, threadId);
+        yield { type: "persona", text: persona };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        await appendMessage(userId, {
+          thread_id: threadId,
+          role: "assistant",
+          content: `I hit a problem running the scan: ${msg}. You can ask me to try again.`,
+        });
+        await touchThread(userId, threadId);
+        yield { type: "final", assistantText: `Scan failed: ${msg}` };
+      }
       return;
     }
 

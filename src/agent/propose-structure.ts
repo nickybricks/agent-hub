@@ -13,6 +13,7 @@ import {
   getDb,
   SenderForProposal,
   writeMemory,
+  listMemories,
 } from "../lib/analyzer-db";
 import {
   getSendersForProposalPg,
@@ -25,6 +26,7 @@ import {
   setProposedFolderStatusPg,
   getProposedFolderByPathPg,
   writeMemoryPg,
+  listMemoriesPg,
 } from "../lib/analyzer-db-pg";
 import { isMultiTenant } from "../lib/db";
 import { withGuardrail, wrapEmail } from "../lib/prompt-safety";
@@ -83,28 +85,18 @@ function renderSender(s: SenderForProposal): string {
   return wrapEmail(`- ${s.email} (${s.domain}) — ${s.category ?? "unclassified"} — ${s.message_count} msgs — ${s.display_name ?? ""}`);
 }
 
-async function main() {
-  const args = process.argv.slice(2);
-  const limitArg = args.find((a) => a.startsWith("--limit="));
-  const minArg = args.find((a) => a.startsWith("--min-messages="));
-  const providerArg = args.find((a) => a.startsWith("--provider="));
-  const modelArg = args.find((a) => a.startsWith("--model="));
-
+export async function runProposeStructure(
+  userId: string | null,
+  opts: { provider?: string; model?: string; minMessages?: number; limit?: number } = {},
+) {
   const config = loadLLMConfig();
-  if (providerArg) config.provider = providerArg.split("=")[1] as LLMConfig["provider"];
-  if (modelArg) config.model = modelArg.split("=")[1];
-
-  const MT = isMultiTenant();
-  const userId = MT ? process.env.DEV_USER_ID ?? null : null;
-  if (MT && !userId) {
-    console.error("MULTI_TENANT=true requires DEV_USER_ID env var.");
-    process.exit(1);
-  }
+  if (opts.provider) config.provider = opts.provider as LLMConfig["provider"];
+  if (opts.model) config.model = opts.model;
 
   // Default to ALL senders meeting the min-messages threshold — Sonnet's context window
   // easily handles a few thousand entries, and folder design improves with full visibility.
-  const minMessages = minArg ? Number(minArg.split("=")[1]) : 3;
-  const limit = limitArg ? Number(limitArg.split("=")[1]) : 5000;
+  const minMessages = opts.minMessages ?? 3;
+  const limit = opts.limit ?? 5000;
   const senders = userId
     ? await getSendersForProposalPg(userId, minMessages, limit)
     : getSendersForProposal(minMessages, limit);
@@ -177,11 +169,27 @@ async function main() {
         )
         .get() as { msgs: number; senders: number });
 
+  // Persona seam: let the synthesised user_profile + stated user_pref answers
+  // shape the taxonomy so folders fit this specific person.
+  const personaMemos = userId
+    ? await listMemoriesPg(userId, { kind: "user_profile", limit: 1 })
+    : listMemories({ kind: "user_profile", limit: 1 });
+  const prefMemos = userId
+    ? await listMemoriesPg(userId, { kind: "user_pref", limit: 50 })
+    : listMemories({ kind: "user_pref", limit: 50 });
+  const personaContext =
+    personaMemos.length || prefMemos.length
+      ? `User persona & stated preferences — design the structure to fit this person:
+${personaMemos[0] ? `Persona: ${personaMemos[0].content}\n` : ""}${prefMemos.map((p) => `- ${p.content}`).join("\n")}
+
+`
+      : "";
+
   console.log(
     `Proposing structure from ${senders.length} senders using ${config.provider}/${config.model}… (${existingMailboxes.length} existing folders, ${totals.msgs.toLocaleString()} total messages)`
   );
 
-  const userPrompt = `Mailbox snapshot:
+  const userPrompt = `${personaContext}Mailbox snapshot:
 - ${totals.msgs.toLocaleString()} total messages from ${totals.senders.toLocaleString()} distinct senders
 - ${existingMailboxes.length} existing folders
 
@@ -288,13 +296,34 @@ async function flushLangSmith() {
   }
 }
 
-main()
-  .then(async () => {
-    await flushLangSmith();
-    process.exit(0);
-  })
-  .catch(async (err) => {
-    console.error(err);
-    await flushLangSmith();
+async function main() {
+  const args = process.argv.slice(2);
+  const get = (p: string) => args.find((a) => a.startsWith(p))?.split("=")[1];
+
+  const MT = isMultiTenant();
+  const userId = MT ? process.env.DEV_USER_ID ?? null : null;
+  if (MT && !userId) {
+    console.error("MULTI_TENANT=true requires DEV_USER_ID env var.");
     process.exit(1);
+  }
+
+  await runProposeStructure(userId, {
+    provider: get("--provider="),
+    model: get("--model="),
+    minMessages: get("--min-messages=") ? Number(get("--min-messages=")) : undefined,
+    limit: get("--limit=") ? Number(get("--limit=")) : undefined,
   });
+}
+
+if (require.main === module) {
+  main()
+    .then(async () => {
+      await flushLangSmith();
+      process.exit(0);
+    })
+    .catch(async (err: unknown) => {
+      console.error(err);
+      await flushLangSmith();
+      process.exit(1);
+    });
+}

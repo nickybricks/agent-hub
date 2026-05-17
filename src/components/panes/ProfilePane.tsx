@@ -24,6 +24,21 @@ export default function ProfilePane() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showMemories, setShowMemories] = useState(false);
+  const [rebuilding, setRebuilding] = useState(false);
+
+  async function rebuild() {
+    if (!confirm("Rebuild your profile? This restarts onboarding in the chat. Your current persona is kept in history.")) return;
+    setRebuilding(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/mail-analyzer/onboarding/reset", { method: "POST" });
+      if (!res.ok) throw new Error();
+      window.location.href = "/app";
+    } catch {
+      setError("Couldn’t start a rebuild.");
+      setRebuilding(false);
+    }
+  }
 
   async function load() {
     try {
@@ -85,10 +100,11 @@ export default function ProfilePane() {
         <Button
           variant="ghost"
           size="sm"
-          disabled
-          title="Rebuilds via the onboarding chat — shipping next"
+          onClick={rebuild}
+          disabled={rebuilding}
+          title="Restart onboarding in the chat to rebuild your persona"
         >
-          Rebuild profile
+          {rebuilding ? "Starting…" : "Rebuild profile"}
         </Button>
       </div>
 

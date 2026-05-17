@@ -4,10 +4,11 @@ import {
   mailScan,
   mailTriage,
   mailClassify,
+  mailPropose,
   mailSpamRescan,
 } from "@/inngest/functions";
 
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [mailScan, mailTriage, mailClassify, mailSpamRescan],
+  functions: [mailScan, mailTriage, mailClassify, mailPropose, mailSpamRescan],
 });

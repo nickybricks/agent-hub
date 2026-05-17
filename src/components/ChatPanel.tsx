@@ -50,6 +50,15 @@ export default function ChatPanel() {
   const [showThinking, setShowThinking] = useState(false);
   const [chips, setChips] = useState<ToolChip[]>([]);
 
+  // Onboarding surfaces.
+  const [connectCard, setConnectCard] = useState(false);
+  const [progress, setProgress] = useState<string[]>([]);
+  const [persona, setPersona] = useState<string | null>(null);
+  const [personaEdit, setPersonaEdit] = useState("");
+  const [cProvider, setCProvider] = useState<"imap" | "gmail" | "outlook">("imap");
+  const [cImap, setCImap] = useState({ host: "", port: "993", user: "", password: "" });
+  const [cBusy, setCBusy] = useState(false);
+
   const abortRef = useRef<AbortController | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -78,6 +87,9 @@ export default function ChatPanel() {
         setMessages(td.messages ?? []);
         setPending(td.pending ?? null);
         setAsking(null);
+        setConnectCard(false);
+        setPersona(null);
+        setProgress([]);
         setError(null);
       }
     } catch {
@@ -89,8 +101,20 @@ export default function ChatPanel() {
   useEffect(() => {
     (async () => {
       const list = await loadThreads();
-      if (list[0]) await loadThread(list[0].id);
+      if (list[0]) {
+        await loadThread(list[0].id);
+        return;
+      }
+      // Brand-new user with no chats yet: if onboarding is incomplete, open the
+      // onboarding conversation automatically.
+      try {
+        const s = await fetch("/api/mail-analyzer/onboarding/status").then((r) => r.json());
+        if (s && s.onboarded === false) sendMessage("Hi — let's set up my mailbox.");
+      } catch {
+        /* ignore */
+      }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function resetLive() {
@@ -135,6 +159,13 @@ export default function ChatPanel() {
           setPending(ev.pending);
         } else if (ev.type === "ask") {
           setAsking({ question: ev.question, options: ev.options ?? [] });
+        } else if (ev.type === "connect") {
+          setConnectCard(true);
+        } else if (ev.type === "progress") {
+          setProgress((p) => [...p, ev.label]);
+        } else if (ev.type === "persona") {
+          setPersona(ev.text);
+          setPersonaEdit(ev.text);
         } else if (ev.type === "done") {
           if (ev.threadId) setThreadId(ev.threadId);
           setMessages(ev.messages ?? []);
@@ -153,6 +184,7 @@ export default function ChatPanel() {
     setBusy(true);
     setError(null);
     setAsking(null);
+    setProgress([]);
     resetLive();
     const ac = new AbortController();
     abortRef.current = ac;
@@ -201,6 +233,59 @@ export default function ChatPanel() {
     run("/api/mail-analyzer/chat/confirm", { toolCallId: id, decision });
   }
 
+  async function submitConnect() {
+    setCBusy(true);
+    setError(null);
+    try {
+      if (cProvider === "gmail" || cProvider === "outlook") {
+        window.location.href = `/api/auth/${cProvider === "gmail" ? "google" : "microsoft"}/start`;
+        return;
+      }
+      const res = await fetch("/api/settings/mail", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: "imap",
+          imap: { ...cImap, port: Number(cImap.port) || 993 },
+        }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error ?? `HTTP ${res.status}`);
+      }
+      setConnectCard(false);
+      sendMessage("I've connected my mailbox — let's continue.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCBusy(false);
+    }
+  }
+
+  async function savePersona() {
+    if (!persona || threadId == null) return;
+    setCBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/mail-analyzer/onboarding/persona", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ threadId, persona: personaEdit }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error ?? `HTTP ${res.status}`);
+      }
+      setPersona(null);
+      setProgress([]);
+      await loadThread(threadId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCBusy(false);
+    }
+  }
+
   function stop() {
     abortRef.current?.abort();
   }
@@ -211,6 +296,9 @@ export default function ChatPanel() {
     setMessages([]);
     setPending(null);
     setAsking(null);
+    setConnectCard(false);
+    setPersona(null);
+    setProgress([]);
     setError(null);
     resetLive();
   }
@@ -339,6 +427,90 @@ export default function ChatPanel() {
               </Button>
               <Button variant="ghost" onClick={() => decide("cancel")} disabled={busy}>
                 Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {progress.length > 0 && (
+          <div className="card space-y-1 p-3 text-sm">
+            {progress.map((p, i) => (
+              <div
+                key={i}
+                className={i === progress.length - 1 ? "" : "text-muted-foreground"}
+              >
+                {i === progress.length - 1 && busy ? "⏳ " : "✓ "}
+                {p}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {connectCard && (
+          <div className="card space-y-3 border border-sky-500/50 p-4">
+            <div className="text-xs font-medium uppercase tracking-wide text-sky-600 dark:text-sky-400">
+              Connect your mailbox
+            </div>
+            <div className="flex gap-2 text-sm">
+              {(["imap", "gmail", "outlook"] as const).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setCProvider(p)}
+                  className={`rounded-md border px-2 py-1 text-xs ${
+                    cProvider === p
+                      ? "border-sky-500 bg-sky-500/10"
+                      : "border-input text-muted-foreground"
+                  }`}
+                >
+                  {p === "imap" ? "IMAP" : p === "gmail" ? "Gmail" : "Outlook"}
+                </button>
+              ))}
+            </div>
+            {cProvider === "imap" ? (
+              <div className="space-y-2">
+                {(
+                  [
+                    ["host", "IMAP host (e.g. imap.example.com)"],
+                    ["user", "Email / username"],
+                    ["password", "Password"],
+                    ["port", "Port"],
+                  ] as const
+                ).map(([k, ph]) => (
+                  <input
+                    key={k}
+                    type={k === "password" ? "password" : "text"}
+                    placeholder={ph}
+                    value={cImap[k]}
+                    onChange={(e) => setCImap((s) => ({ ...s, [k]: e.target.value }))}
+                    className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                You&apos;ll be redirected to sign in with{" "}
+                {cProvider === "gmail" ? "Google" : "Microsoft"} and brought back here.
+              </p>
+            )}
+            <Button onClick={submitConnect} disabled={cBusy}>
+              {cBusy ? "Connecting…" : "Connect"}
+            </Button>
+          </div>
+        )}
+
+        {persona && (
+          <div className="card space-y-3 border border-emerald-500/50 p-4">
+            <div className="text-xs font-medium uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+              Here&apos;s what I learned about you — edit anything that&apos;s off
+            </div>
+            <textarea
+              value={personaEdit}
+              onChange={(e) => setPersonaEdit(e.target.value)}
+              className="min-h-[140px] w-full rounded-md border border-input bg-background p-2 text-sm leading-relaxed"
+            />
+            <div className="flex gap-2">
+              <Button onClick={savePersona} disabled={cBusy || !personaEdit.trim()}>
+                {cBusy ? "Saving…" : "Looks good — save"}
               </Button>
             </div>
           </div>

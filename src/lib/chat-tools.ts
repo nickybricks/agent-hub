@@ -39,7 +39,7 @@ import {
 } from "./analyzer-db-pg";
 import { previewRule, applyRule } from "./apply-rule";
 
-export type ToolKind = "read" | "mutate" | "ask";
+export type ToolKind = "read" | "mutate" | "ask" | "onboard";
 
 export interface ToolSpec {
   name: string;
@@ -82,6 +82,39 @@ export const TOOL_SPECS: ToolSpec[] = [
       required: ["question", "options"],
       additionalProperties: false,
     },
+  },
+  {
+    name: "connect_mailbox",
+    kind: "onboard",
+    description:
+      "Show the user an in-chat card to connect their mailbox (IMAP / Gmail / Outlook). Call this once, only during onboarding, when the mailbox is not yet connected. Ends your turn until they connect.",
+    schema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "save_onboarding_answer",
+    kind: "read",
+    description:
+      "Persist one questionnaire answer during onboarding as a durable preference. Call this immediately after the user answers each onboarding question. Auto-runs (no confirmation).",
+    schema: {
+      type: "object",
+      properties: {
+        key: {
+          type: "string",
+          description:
+            "stable slug for the question, e.g. 'mailbox_type' | 'folder_style' | 'cleanup_aggressiveness' | 'occupation' | 'sacred'",
+        },
+        answer: { type: "string", description: "the user's answer, verbatim or lightly normalised" },
+      },
+      required: ["key", "answer"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "run_pipeline",
+    kind: "onboard",
+    description:
+      "Trigger the mailbox scan + sender classification, stream progress to the user, then synthesise a draft persona and present it for confirmation. Call this once, only during onboarding, after the questionnaire is complete and the mailbox is connected. Ends your turn.",
+    schema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "list_proposed_folders",
@@ -304,6 +337,16 @@ export async function runReadTool(
     case "recent_moves": {
       const limit = input.limit ? num(input.limit) : 30;
       return userId ? listRecentMovesPg(userId, limit) : listRecentMoves(limit);
+    }
+    case "save_onboarding_answer": {
+      const memo = {
+        kind: "user_pref" as const,
+        key: `onboarding:${str(input.key)}`,
+        content: str(input.answer),
+        source: "user_decision" as const,
+      };
+      const id = userId ? await writeMemoryPg(userId, memo) : writeMemory(memo);
+      return { ok: true, memory_id: id };
     }
     case "list_memories": {
       const filter = {

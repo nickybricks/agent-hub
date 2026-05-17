@@ -27,6 +27,15 @@ export const mailClassify = inngest.createFunction(
   },
 );
 
+export const mailPropose = inngest.createFunction(
+  { id: "mail-propose", retries: 2, triggers: [{ event: "mail/propose" }] },
+  async ({ event, step }) => {
+    const userId = event.data.userId as string | undefined;
+    const { runProposeStructure } = await import("../agent/propose-structure");
+    return step.run("propose", () => runProposeStructure(userId ?? null));
+  },
+);
+
 export const mailSpamRescan = inngest.createFunction(
   { id: "mail-spam-rescan", retries: 2, triggers: [{ event: "mail/spam-rescan" }] },
   async ({ event, step }) => {
