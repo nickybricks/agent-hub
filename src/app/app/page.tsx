@@ -4,8 +4,8 @@ import { useState } from "react";
 import ChatPanel from "@/components/ChatPanel";
 import HomePane from "@/components/panes/HomePane";
 import ProposalsPane from "@/components/panes/ProposalsPane";
-import AuditTab from "@/app/mail-analyzer/audit/page";
-import HistoryTab from "@/app/mail-analyzer/history/page";
+import AuditPane from "@/components/panes/AuditPane";
+import HistoryPane from "@/components/panes/HistoryPane";
 
 const TABS = ["Home", "Proposals", "Audit", "Profile", "History"] as const;
 type Tab = (typeof TABS)[number];
@@ -35,8 +35,8 @@ export default function AppShell() {
         <div className="flex-1 overflow-y-auto">
           {tab === "Home" && <HomePane onNavigate={(t) => setTab(t as Tab)} />}
           {tab === "Proposals" && <ProposalsPane />}
-          {tab === "Audit" && <AuditTab />}
-          {tab === "History" && <HistoryTab />}
+          {tab === "Audit" && <AuditPane />}
+          {tab === "History" && <HistoryPane />}
           {tab === "Profile" && (
             <div className="mx-auto max-w-2xl px-8 py-10">
               <h1 className="mb-1 text-2xl font-semibold tracking-tight">Profile</h1>
