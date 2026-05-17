@@ -102,30 +102,55 @@ export function persistMemory(userId: string | null, content: string, key: strin
 const CHEAP_MODEL = { provider: "openai" as const, model: "gpt-4o-mini" };
 const SMART_MODEL = { provider: "anthropic" as const, model: "claude-sonnet-4-6" };
 
-// Words that signal a decision / multi-step / action turn → smart model.
-const COMPLEX_RE =
-  /\b(reorgani|restructur|propos|suggest|recommend|plan|analy|compar|why|decid|merg|renam|appl(y|ies)|audit|fix|improv|better|should i|help me|organi[sz]|sort|review|strateg|aggressiv|taxonom|structur|optimi|consolidat|bulk|clean ?up|every|all of|each|move|delete|archiv|undo|rule|spam|categor)\b/i;
+const CLASSIFIER_PROMPT = `You route a user's message to an email-mailbox assistant.
+
+Answer with exactly one word — "simple" or "complex":
+- simple: a single factual lookup the assistant can answer in one step (counts, lists, "who/when/how many", show me X).
+- complex: anything needing a decision, judgment, planning, multi-step reasoning, mailbox changes, or a clarifying question.
+
+If you are unsure, answer "complex".`;
+
+/** Cheap, fast model for the routing decision itself (no tools, no thinking). */
+function buildClassifier(base: LLMConfig): ReturnType<typeof createLLM> | null {
+  const hasOpenAI = !!(process.env.OPENAI_API_KEY || base.apiKeys?.openai);
+  const hasAnthropic = !!(process.env.ANTHROPIC_API_KEY || base.apiKeys?.anthropic);
+  const cfg: LLMConfig | null = hasOpenAI
+    ? { ...base, provider: "openai", model: "gpt-4o-mini", systemPrompt: "" }
+    : hasAnthropic
+      ? { ...base, provider: "anthropic", model: ANTHROPIC_FALLBACK_MODEL, systemPrompt: "" }
+      : null;
+  return cfg ? createLLM(cfg) : null;
+}
 
 /**
- * Per-turn complexity classifier. Conservative: anything that looks like a
- * decision, action, ambiguity, or an ongoing agentic thread → "complex"
- * (protects ask_user / tool reliability, which gpt-4o-mini handles poorly).
- * Only clearly trivial single-shot lookups → "simple".
- *
- * SEAM: swap this body for a tiny classifier LLM call later if the heuristic
- * misroutes too often — callers only depend on the return value.
+ * Per-turn complexity decision, made by a cheap LLM (not keyword matching).
+ * Structural shortcut only: confirm/resume turns carry no new user text (the
+ * "message" is a tool result), so they're inherently agentic → complex without
+ * spending a classifier call. Any classifier failure → complex (safe default,
+ * preserves ask_user / tool reliability).
  */
-function classifyComplexity(history: ChatMessage[]): "simple" | "complex" {
+async function classifyComplexity(
+  history: ChatMessage[],
+  base: LLMConfig,
+): Promise<"simple" | "complex"> {
   if (history.length === 0) return "complex";
   const last = history[history.length - 1];
-  // Confirm/resume turns continue agentic work (last msg is a tool result).
   if (last.role !== "user") return "complex";
-  const text = last.content ?? "";
-  if (text.length > 180) return "complex";
-  if (COMPLEX_RE.test(text)) return "complex";
-  // An already tool-heavy thread is an agentic conversation — stay smart.
-  if (history.filter((m) => m.role === "tool").length >= 2) return "complex";
-  return "simple";
+  const text = (last.content ?? "").trim();
+  if (!text) return "complex";
+
+  const clf = buildClassifier(base);
+  if (!clf) return "complex";
+  try {
+    const res = await clf.invoke(
+      [new SystemMessage(CLASSIFIER_PROMPT), new HumanMessage(text)],
+      { tags: ["mail-analyzer", "chat", "router"] },
+    );
+    const out = (typeof res.content === "string" ? res.content : "").toLowerCase();
+    return out.includes("simple") && !out.includes("complex") ? "simple" : "complex";
+  } catch {
+    return "complex";
+  }
 }
 
 function pickModel(
@@ -148,7 +173,7 @@ function pickModel(
  * never sees or controls the model or system prompt. Cheap model for trivial
  * questions, smart model for agentic ones — automatic, to save cost.
  */
-function resolveChatLLMConfig(history: ChatMessage[]): LLMConfig {
+async function resolveChatLLMConfig(history: ChatMessage[]): Promise<LLMConfig> {
   const cfg = JSON.parse(readFileSync(join(process.cwd(), "data", "config.json"), "utf-8"));
   const agent = cfg.agents?.find((a: { id: string }) => a.id === "newsletter-summarizer");
   if (!agent?.settings?.llm) throw new Error("No LLM config in data/config.json");
@@ -156,7 +181,8 @@ function resolveChatLLMConfig(history: ChatMessage[]): LLMConfig {
 
   const hasAnthropic = !!(process.env.ANTHROPIC_API_KEY || llm.apiKeys?.anthropic);
   const hasOpenAI = !!(process.env.OPENAI_API_KEY || llm.apiKeys?.openai);
-  const pick = pickModel(classifyComplexity(history), hasOpenAI, hasAnthropic);
+  const complexity = await classifyComplexity(history, llm);
+  const pick = pickModel(complexity, hasOpenAI, hasAnthropic);
   llm.provider = pick.provider;
   llm.model = pick.model;
 
@@ -249,7 +275,7 @@ export async function* streamLoop(
   signal?: AbortSignal,
 ): AsyncGenerator<ChatEvent> {
   const history = await listMessages(userId, threadId);
-  const config = resolveChatLLMConfig(history);
+  const config = await resolveChatLLMConfig(history);
   const model = buildModel(config);
 
   const msgs: BaseMessage[] = [new SystemMessage(config.systemPrompt), ...toLangChain(history)];
