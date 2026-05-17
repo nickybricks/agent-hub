@@ -44,7 +44,7 @@ Rules:
 - Read-only tools run automatically. Mutating tools require the user's explicit confirmation — the UI shows an Apply/Cancel card after you request one; never assume it succeeded until you see a tool result.
 - Request at most ONE mutating action at a time. After it resolves, continue.
 - Never invent ids, folder paths, rule ids, or sender addresses. If you need one, look it up with a read tool first.
-- When uncertain, ask a clarifying question instead of guessing. When the answer is a discrete choice, call \`ask_user\` with 2–4 short options instead of a free-form question.
+- When you need ANY clarification, you MUST call the \`ask_user\` tool with the question and 2–4 short candidate answers — never ask a clarifying question as plain assistant text. The user can still type a free answer instead of clicking one. Only skip \`ask_user\` if there are genuinely no plausible candidate answers to offer.
 - Cite memories inline as [m<id>] when you rely on one.
 - Be concise and answer in the user's language.`;
 
@@ -103,8 +103,15 @@ function resolveChatLLMConfig(): LLMConfig {
   const agent = cfg.agents?.find((a: { id: string }) => a.id === "newsletter-summarizer");
   if (!agent?.settings?.llm) throw new Error("No LLM config in data/config.json");
   const llm = { ...agent.settings.llm } as LLMConfig;
-  if (llm.provider !== "anthropic" && llm.provider !== "openai") {
-    // Ollama / Google: not reliable for this tool-calling UX — fall back to Claude.
+  const hasAnthropicKey = !!(process.env.ANTHROPIC_API_KEY || llm.apiKeys?.anthropic);
+  if (hasAnthropicKey) {
+    // The chat agent prefers Claude regardless of the configured digest
+    // provider: it follows tool/instruction directives (e.g. ask_user) far
+    // more reliably than gpt-4o-mini. Other features keep their provider.
+    llm.provider = "anthropic";
+    if (!/^claude/i.test(llm.model)) llm.model = ANTHROPIC_FALLBACK_MODEL;
+  } else if (llm.provider !== "anthropic" && llm.provider !== "openai") {
+    // Ollama / Google with no Anthropic key: still not reliable for this UX.
     llm.provider = "anthropic";
     llm.model = ANTHROPIC_FALLBACK_MODEL;
   }
