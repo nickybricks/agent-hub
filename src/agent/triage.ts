@@ -37,17 +37,18 @@ import {
 
 const BATCH_LIMIT = Number(process.env.TRIAGE_BATCH_LIMIT ?? 500);
 const MT = isMultiTenant();
-const USER_ID = MT ? process.env.DEV_USER_ID : null;
-if (MT && !USER_ID) {
-  console.error("MULTI_TENANT=true requires DEV_USER_ID env var.");
-  process.exit(1);
-}
 
 interface RuleMatchedMove {
   msg: TriageCandidate;
   toMailbox: string;
   ruleId: number;
   ruleSummary: string;
+}
+
+export interface TriageResult {
+  processed: number;
+  moved: number;
+  queued: number;
 }
 
 function isSpamMailbox(name: string): boolean {
@@ -59,58 +60,60 @@ function isInboxMailbox(name: string): boolean {
   return name.toLowerCase() === "inbox";
 }
 
-// Backend dispatchers ────────────────────────────────────────────────────────
-async function getLastWatermark(): Promise<string | null> {
-  return MT ? getLastTriageWatermarkPg(USER_ID!) : getLastTriageWatermarkSqlite();
-}
-async function getCandidates(since: string | null, limit: number): Promise<TriageCandidate[]> {
-  return MT ? getMessagesForTriagePg(USER_ID!, since, limit) : getMessagesForTriageSqlite(since, limit);
-}
-async function ruleForSender(email: string): Promise<FolderRule | null> {
-  return MT ? findRuleForSenderPg(USER_ID!, email) : findRuleForSenderSqlite(email);
-}
-async function findingSenders(kind: "false_positive_spam" | "false_negative_inbox"): Promise<Set<string>> {
-  if (MT) return listAuditFindingSendersPg(USER_ID!, kind);
-  return new Set(
-    listAuditFindings(kind).map((f) => f.sender_email?.toLowerCase()).filter((e): e is string => !!e),
-  );
-}
-async function enqueue(input: ReviewQueueInput): Promise<boolean> {
-  return MT ? enqueueReviewPg(USER_ID!, input) : enqueueReviewSqlite(input);
-}
-async function startRun(): Promise<number> {
-  return MT ? startTriageRunPg(USER_ID!) : startTriageRunSqlite();
-}
-async function finishRun(id: number, counts: { processed: number; moved: number; queued: number }, watermark: string | null) {
-  if (MT) await finishTriageRunPg(USER_ID!, id, counts, watermark);
-  else finishTriageRunSqlite(id, counts, watermark);
-}
-async function failRun(id: number, error: string) {
-  if (MT) await failTriageRunPg(USER_ID!, id, error);
-  else failTriageRunSqlite(id, error);
-}
-async function upsertMb(info: { name: string; account: string; messageCount: number; unreadCount: number }): Promise<number> {
-  return MT ? upsertMailboxPg(USER_ID!, info) : upsertMailboxSqlite(info);
-}
-async function logMv(entries: Parameters<typeof logMovesSqlite>[0]): Promise<void> {
-  if (MT) await logMovesPg(USER_ID!, entries.map((e) => ({ ...e, rule_id: e.rule_id ?? null, reason: e.reason ?? null, error: e.error ?? null })));
-  else logMovesSqlite(entries);
-}
-async function updateMsgMb(messageId: string, mailboxId: number): Promise<void> {
-  if (MT) await updateMessageMailboxPg(USER_ID!, messageId, mailboxId);
-  else updateMessageMailboxSqlite(messageId, mailboxId);
-}
-async function touchRule(id: number): Promise<void> {
-  if (MT) await touchRuleAppliedPg(USER_ID!, id);
-  else touchRuleAppliedSqlite(id);
-}
-async function memo(input: Parameters<typeof writeMemorySqlite>[0]): Promise<number> {
-  return MT ? writeMemoryPg(USER_ID!, input) : writeMemorySqlite(input);
-}
+/**
+ * Run triage. In multi-tenant mode `userId` is required and all reads/writes
+ * are scoped to that user; in single-user mode pass undefined (SQLite).
+ */
+export async function runTriage(
+  userId: string | undefined,
+  opts: { dryRun?: boolean } = {},
+): Promise<TriageResult> {
+  if (MT && !userId) throw new Error("MULTI_TENANT=true requires a userId");
 
-async function main() {
-  const dryRun = process.argv.includes("--dry-run");
-  console.log(`Triage starting${dryRun ? " (dry-run)" : ""} [${MT ? `multi-tenant user=${USER_ID}` : "single-user SQLite"}]...`);
+  // Per-user dispatchers — closures over userId so concurrent runs stay isolated.
+  const getLastWatermark = (): Promise<string | null> =>
+    MT ? getLastTriageWatermarkPg(userId!) : Promise.resolve(getLastTriageWatermarkSqlite());
+  const getCandidates = (since: string | null, limit: number): Promise<TriageCandidate[]> =>
+    MT ? getMessagesForTriagePg(userId!, since, limit) : Promise.resolve(getMessagesForTriageSqlite(since, limit));
+  const ruleForSender = (email: string): Promise<FolderRule | null> =>
+    MT ? findRuleForSenderPg(userId!, email) : Promise.resolve(findRuleForSenderSqlite(email));
+  const findingSenders = async (kind: "false_positive_spam" | "false_negative_inbox"): Promise<Set<string>> => {
+    if (MT) return listAuditFindingSendersPg(userId!, kind);
+    return new Set(
+      listAuditFindings(kind).map((f) => f.sender_email?.toLowerCase()).filter((e): e is string => !!e),
+    );
+  };
+  const enqueue = (input: ReviewQueueInput): Promise<boolean> =>
+    MT ? enqueueReviewPg(userId!, input) : Promise.resolve(enqueueReviewSqlite(input));
+  const startRun = (): Promise<number> =>
+    MT ? startTriageRunPg(userId!) : Promise.resolve(startTriageRunSqlite());
+  const finishRun = async (id: number, counts: TriageResult, watermark: string | null) => {
+    if (MT) await finishTriageRunPg(userId!, id, counts, watermark);
+    else finishTriageRunSqlite(id, counts, watermark);
+  };
+  const failRun = async (id: number, error: string) => {
+    if (MT) await failTriageRunPg(userId!, id, error);
+    else failTriageRunSqlite(id, error);
+  };
+  const upsertMb = (info: { name: string; account: string; messageCount: number; unreadCount: number }): Promise<number> =>
+    MT ? upsertMailboxPg(userId!, info) : Promise.resolve(upsertMailboxSqlite(info));
+  const logMv = async (entries: Parameters<typeof logMovesSqlite>[0]): Promise<void> => {
+    if (MT) await logMovesPg(userId!, entries.map((e) => ({ ...e, rule_id: e.rule_id ?? null, reason: e.reason ?? null, error: e.error ?? null })));
+    else logMovesSqlite(entries);
+  };
+  const updateMsgMb = async (messageId: string, mailboxId: number): Promise<void> => {
+    if (MT) await updateMessageMailboxPg(userId!, messageId, mailboxId);
+    else updateMessageMailboxSqlite(messageId, mailboxId);
+  };
+  const touchRule = async (id: number): Promise<void> => {
+    if (MT) await touchRuleAppliedPg(userId!, id);
+    else touchRuleAppliedSqlite(id);
+  };
+  const memo = (input: Parameters<typeof writeMemorySqlite>[0]): Promise<number> =>
+    MT ? writeMemoryPg(userId!, input) : Promise.resolve(writeMemorySqlite(input));
+
+  const dryRun = !!opts.dryRun;
+  console.log(`Triage starting${dryRun ? " (dry-run)" : ""} [${MT ? `multi-tenant user=${userId}` : "single-user SQLite"}]...`);
 
   const watermark = await getLastWatermark();
   console.log(`Watermark: ${watermark ?? "(none — processing all)"}`);
@@ -122,7 +125,7 @@ async function main() {
       const id = await startRun();
       await finishRun(id, { processed: 0, moved: 0, queued: 0 }, watermark);
     }
-    return;
+    return { processed: 0, moved: 0, queued: 0 };
   }
 
   const fpSpamSenders = await findingSenders("false_positive_spam");
@@ -198,7 +201,7 @@ async function main() {
     for (const q of queueInputs.slice(0, 10)) {
       console.log(`  QUEUE ${q.message_id}  reason=${q.reason}  suggested=${q.suggested_action ?? "-"}`);
     }
-    return;
+    return { processed: candidates.length, moved: 0, queued: 0 };
   }
 
   const runId = await startRun();
@@ -211,12 +214,14 @@ async function main() {
     }
 
     if (moves.length > 0) {
-      const cfg = readMailConfig();
+      const cfg = MT
+        ? await (await import("../lib/credentials")).getMailCredentials(userId!)
+        : readMailConfig();
       const account = cfg.imap?.user ?? process.env.IMAP_USER ?? "default";
       const providerKind = cfg.provider ?? "imap";
       const batchId = randomUUID();
 
-      const provider = await createMailProvider();
+      const provider = await createMailProvider(MT ? userId : undefined);
       await provider.open();
       try {
         const byPair = new Map<string, RuleMatchedMove[]>();
@@ -276,12 +281,27 @@ async function main() {
 
     await finishRun(runId, { processed: candidates.length, moved, queued }, highWatermark);
     console.log(`Triage done. moved=${moved} queued=${queued} processed=${candidates.length}`);
+    return { processed: candidates.length, moved, queued };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await failRun(runId, msg);
-    console.error("Triage failed:", msg);
-    process.exit(1);
+    throw new Error(`Triage failed: ${msg}`);
   }
 }
 
-main();
+// CLI entry — only run when invoked directly.
+if (require.main === module) {
+  (async () => {
+    const userId = MT ? process.env.DEV_USER_ID : undefined;
+    if (MT && !userId) {
+      console.error("MULTI_TENANT=true requires DEV_USER_ID env var.");
+      process.exit(1);
+    }
+    try {
+      await runTriage(userId, { dryRun: process.argv.includes("--dry-run") });
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : err);
+      process.exit(1);
+    }
+  })();
+}

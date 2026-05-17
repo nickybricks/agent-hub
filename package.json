@@ -1,6 +1,6 @@
 {
   "name": "mail-workflow",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -16,7 +16,6 @@
     "mail:triage": "npx tsx --env-file=.env.local src/agent/triage.ts",
     "mail:spam-rescan": "npx tsx --env-file=.env.local src/agent/spam-rescan.ts",
     "mail:propose-structure": "npx tsx --env-file=.env.local src/agent/propose-structure.ts",
-    "mail:schedule:install": "bash scripts/install-mail-analyzer-schedule.sh",
     "test": "node --test --import tsx 'src/**/__tests__/*.test.ts'",
     "eval:injection": "npx tsx --env-file=.env.local scripts/eval-injection.ts"
   },

@@ -20,10 +20,10 @@ export interface SpamRescanResult {
   messagesEnqueued: number;
 }
 
-export async function runSpamRescan(): Promise<SpamRescanResult> {
+export async function runSpamRescan(userIdArg?: string): Promise<SpamRescanResult> {
   const mt = isMultiTenant();
-  const userId = mt ? process.env.DEV_USER_ID : null;
-  if (mt && !userId) throw new Error("MULTI_TENANT=true requires DEV_USER_ID");
+  const userId = mt ? (userIdArg ?? process.env.DEV_USER_ID) : null;
+  if (mt && !userId) throw new Error("MULTI_TENANT=true requires a userId");
 
   const rows: MsgRow[] = mt
     ? ((await loadAllMessagesPg(userId!)) as MsgRow[])

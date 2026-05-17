@@ -30,7 +30,8 @@ import {
   updateMessageMailboxPg,
   writeMemoryPg,
 } from "./analyzer-db-pg";
-import { createMailProvider, readMailConfig } from "./mail-provider";
+import { createMailProvider, readMailConfig, type MailConfig } from "./mail-provider";
+import { getMailCredentials } from "./credentials";
 
 /** Error carrying an HTTP status so routes can map it directly. */
 export class ApplyError extends Error {
@@ -107,8 +108,8 @@ export async function applyRule(
     return { moved: 0, failed: 0, batch_id: null };
   }
 
-  const cfg = readMailConfig();
-  const provider = await createMailProvider();
+  const cfg: MailConfig = userId ? await getMailCredentials(userId) : readMailConfig();
+  const provider = await createMailProvider(userId ?? undefined);
   await provider.open();
 
   const batchId = randomUUID();

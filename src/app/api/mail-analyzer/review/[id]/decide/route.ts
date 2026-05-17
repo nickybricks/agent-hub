@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { isMultiTenant } from "@/lib/db";
 import { createClient } from "@/lib/supabase/server";
-import { createMailProvider, readMailConfig } from "@/lib/mail-provider";
+import { createMailProvider } from "@/lib/mail-provider";
 import {
   getDb,
   getReviewQueueItem,
@@ -100,7 +100,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (!target) return NextResponse.json({ error: "no inbox mailbox found" }, { status: 400 });
   }
 
-  const cfg = readMailConfig();
+  let cfg;
+  if (userId) {
+    const { getMailCredentials } = await import("@/lib/credentials");
+    cfg = await getMailCredentials(userId);
+  } else {
+    const { readMailConfig } = await import("@/lib/mail-provider");
+    cfg = readMailConfig();
+  }
   const account = cfg.imap?.user ?? process.env.IMAP_USER ?? "default";
   const providerKind = cfg.provider ?? "imap";
   const batchId = randomUUID();
@@ -110,7 +117,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   let moveError: string | null = null;
 
   if (target && target !== from) {
-    const provider = await createMailProvider();
+    const provider = await createMailProvider(userId ?? undefined);
     await provider.open();
     try {
       await provider.createMailbox(target);

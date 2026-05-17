@@ -173,11 +173,23 @@ function pickModel(
  * never sees or controls the model or system prompt. Cheap model for trivial
  * questions, smart model for agentic ones — automatic, to save cost.
  */
+// Multi-tenant / Vercel has no data/config.json. The router overrides
+// provider/model per turn and key resolution is env-first, so an empty
+// shell base is sufficient there.
+function envChatLLMBase(): LLMConfig {
+  return { provider: "anthropic", model: ANTHROPIC_FALLBACK_MODEL, systemPrompt: "" };
+}
+
 async function resolveChatLLMConfig(history: ChatMessage[]): Promise<LLMConfig> {
-  const cfg = JSON.parse(readFileSync(join(process.cwd(), "data", "config.json"), "utf-8"));
-  const agent = cfg.agents?.find((a: { id: string }) => a.id === "newsletter-summarizer");
-  if (!agent?.settings?.llm) throw new Error("No LLM config in data/config.json");
-  const llm = { ...agent.settings.llm } as LLMConfig;
+  let llm: LLMConfig;
+  try {
+    const cfg = JSON.parse(readFileSync(join(process.cwd(), "data", "config.json"), "utf-8"));
+    const agent = cfg.agents?.find((a: { id: string }) => a.id === "newsletter-summarizer");
+    if (!agent?.settings?.llm) throw new Error("No LLM config in data/config.json");
+    llm = { ...agent.settings.llm } as LLMConfig;
+  } catch {
+    llm = envChatLLMBase();
+  }
 
   const hasAnthropic = !!(process.env.ANTHROPIC_API_KEY || llm.apiKeys?.anthropic);
   const hasOpenAI = !!(process.env.OPENAI_API_KEY || llm.apiKeys?.openai);

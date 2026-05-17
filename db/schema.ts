@@ -11,6 +11,16 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
+export const userSettings = pgTable("user_settings", {
+  userId: uuid("user_id").primaryKey().notNull(),
+  provider: text("provider").notNull().default("imap"),
+  imapHost: text("imap_host"),
+  imapPort: integer("imap_port"),
+  imapUser: text("imap_user"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
 // Every tenant-scoped table gets user_id (required) and account_id (nullable
 // during the migration grace period, to be filled in by a later task).
 

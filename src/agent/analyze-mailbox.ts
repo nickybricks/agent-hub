@@ -21,37 +21,6 @@ import {
 } from "../lib/analyzer-db-pg";
 
 const MT = isMultiTenant();
-const USER_ID = MT ? process.env.DEV_USER_ID : null;
-if (MT && !USER_ID) {
-  console.error("MULTI_TENANT=true requires DEV_USER_ID env var.");
-  process.exit(1);
-}
-
-async function upsertMailbox(info: MailboxInfo): Promise<number> {
-  return MT ? upsertMailboxPg(USER_ID!, info) : upsertMailboxSqlite(info);
-}
-async function upsertMessages(chunk: MailMessage[], mailboxId: number): Promise<void> {
-  if (MT) await upsertMessagesPg(USER_ID!, chunk, mailboxId);
-  else upsertMessagesSqlite(chunk, mailboxId);
-}
-async function getWatermark(name: string, account: string): Promise<string | null> {
-  return MT ? getWatermarkPg(USER_ID!, name, account) : getWatermarkSqlite(name, account);
-}
-async function startScanRun(): Promise<number> {
-  return MT ? startScanRunPg(USER_ID!) : startScanRunSqlite();
-}
-async function updateScanProgress(id: number, scanned: number): Promise<void> {
-  if (MT) await updateScanProgressPg(USER_ID!, id, scanned);
-  else updateScanProgressSqlite(id, scanned);
-}
-async function finishScanRun(id: number, scanned: number, watermark: string | null): Promise<void> {
-  if (MT) await finishScanRunPg(USER_ID!, id, scanned, watermark);
-  else finishScanRunSqlite(id, scanned, watermark);
-}
-async function failScanRun(id: number, error: string): Promise<void> {
-  if (MT) await failScanRunPg(USER_ID!, id, error);
-  else failScanRunSqlite(id, error);
-}
 
 // Skip server-side folders that aren't useful for analysis.
 const SKIP_PATTERNS = [/^Drafts$/i, /^Trash$/i, /^Deleted/i, /^Outbox$/i];
@@ -60,18 +29,58 @@ function shouldSkip(name: string): boolean {
   return SKIP_PATTERNS.some((re) => re.test(name));
 }
 
-async function main() {
-  const rescanHeaders = process.argv.includes("--rescan-headers");
+export interface ScanResult {
+  runId: number;
+  scanned: number;
+  watermark: string | null;
+}
+
+/**
+ * Run a full mailbox scan. In multi-tenant mode `userId` is required and
+ * credentials/storage are scoped to that user; in single-user mode pass
+ * undefined and SQLite + config.json are used.
+ */
+export async function runScan(
+  userId: string | undefined,
+  opts: { rescanHeaders?: boolean } = {},
+): Promise<ScanResult> {
+  if (MT && !userId) throw new Error("MULTI_TENANT=true requires a userId");
+
+  // Per-user dispatchers — closures over userId so concurrent runs stay isolated.
+  const upsertMailbox = (info: MailboxInfo): Promise<number> =>
+    MT ? upsertMailboxPg(userId!, info) : Promise.resolve(upsertMailboxSqlite(info));
+  const upsertMessages = async (chunk: MailMessage[], mailboxId: number): Promise<void> => {
+    if (MT) await upsertMessagesPg(userId!, chunk, mailboxId);
+    else upsertMessagesSqlite(chunk, mailboxId);
+  };
+  const getWatermark = (name: string, account: string): Promise<string | null> =>
+    MT ? getWatermarkPg(userId!, name, account) : Promise.resolve(getWatermarkSqlite(name, account));
+  const startScanRun = (): Promise<number> =>
+    MT ? startScanRunPg(userId!) : Promise.resolve(startScanRunSqlite());
+  const updateScanProgress = async (id: number, scanned: number): Promise<void> => {
+    if (MT) await updateScanProgressPg(userId!, id, scanned);
+    else updateScanProgressSqlite(id, scanned);
+  };
+  const finishScanRun = async (id: number, scanned: number, watermark: string | null): Promise<void> => {
+    if (MT) await finishScanRunPg(userId!, id, scanned, watermark);
+    else finishScanRunSqlite(id, scanned, watermark);
+  };
+  const failScanRun = async (id: number, error: string): Promise<void> => {
+    if (MT) await failScanRunPg(userId!, id, error);
+    else failScanRunSqlite(id, error);
+  };
+
+  const rescanHeaders = !!opts.rescanHeaders;
   console.log(`Starting mailbox analysis via IMAP...${rescanHeaders ? " (rescan-headers: ignoring watermark)" : ""}`);
 
-  const session = await createMailProvider();
+  const session = await createMailProvider(MT ? userId : undefined);
   let allMailboxes;
   try {
     await session.open();
     allMailboxes = (await session.listMailboxes()).filter((mb) => !shouldSkip(mb.name));
   } catch (err) {
-    console.error("Failed to connect / list mailboxes:", err instanceof Error ? err.message : err);
-    process.exit(1);
+    await session.close().catch(() => {});
+    throw new Error(`Failed to connect / list mailboxes: ${err instanceof Error ? err.message : err}`);
   }
 
   console.log(`Connected. Found ${allMailboxes.length} mailboxes to scan.`);
@@ -123,21 +132,37 @@ async function main() {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await failScanRun(runId, msg);
-    console.error("Scan failed:", msg);
-    process.exit(1);
+    throw new Error(`Scan failed: ${msg}`);
   } finally {
     await session.close();
   }
 
-  if (process.argv.includes("--classify")) {
-    console.log("\nRunning sender classification...");
-    const res = spawnSync(
-      "npx",
-      ["tsx", "--env-file=.env.local", "src/agent/classify-senders.ts"],
-      { stdio: "inherit" },
-    );
-    if (res.status !== 0) process.exit(res.status ?? 1);
-  }
+  return { runId, scanned: totalScanned, watermark: latestDate };
 }
 
-main();
+// CLI entry — only run when invoked directly.
+if (require.main === module) {
+  (async () => {
+    const userId = MT ? process.env.DEV_USER_ID : undefined;
+    if (MT && !userId) {
+      console.error("MULTI_TENANT=true requires DEV_USER_ID env var.");
+      process.exit(1);
+    }
+    try {
+      await runScan(userId, { rescanHeaders: process.argv.includes("--rescan-headers") });
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : err);
+      process.exit(1);
+    }
+
+    if (process.argv.includes("--classify")) {
+      console.log("\nRunning sender classification...");
+      const res = spawnSync(
+        "npx",
+        ["tsx", "--env-file=.env.local", "src/agent/classify-senders.ts"],
+        { stdio: "inherit" },
+      );
+      if (res.status !== 0) process.exit(res.status ?? 1);
+    }
+  })();
+}

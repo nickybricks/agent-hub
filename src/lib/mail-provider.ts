@@ -86,8 +86,14 @@ export function readMailConfig(): MailConfig {
   }
 }
 
-export async function createMailProvider(): Promise<MailProvider> {
-  const cfg = readMailConfig();
+export async function createMailProvider(userId?: string): Promise<MailProvider> {
+  let cfg: MailConfig;
+  if (userId) {
+    const { getMailCredentials } = await import("./credentials");
+    cfg = await getMailCredentials(userId);
+  } else {
+    cfg = readMailConfig();
+  }
   const kind = cfg.provider ?? "imap";
   switch (kind) {
     case "imap": {

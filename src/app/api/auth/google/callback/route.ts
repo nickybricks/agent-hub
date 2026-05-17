@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { readMailConfig } from "@/lib/mail-provider";
 import { upsertEnvVars } from "@/lib/env-file";
 import { readPkceCookie, clearPkceCookie } from "@/lib/oauth-pkce";
+import { isMultiTenant } from "@/lib/db";
+import { createClient } from "@/lib/supabase/server";
+import { saveVaultSecret } from "@/lib/credentials";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -47,7 +50,13 @@ export async function GET(request: Request) {
     );
   }
 
-  upsertEnvVars({ GOOGLE_REFRESH_TOKEN: tokens.refresh_token });
+  if (isMultiTenant()) {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) await saveVaultSecret(user.id, "google_refresh_token", tokens.refresh_token);
+  } else {
+    upsertEnvVars({ GOOGLE_REFRESH_TOKEN: tokens.refresh_token });
+  }
 
   const response = NextResponse.redirect(`${url.origin}/settings/mail?connected=gmail`);
   clearPkceCookie(response);

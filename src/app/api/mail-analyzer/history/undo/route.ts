@@ -71,7 +71,7 @@ export async function POST(req: Request) {
   const applied = moves.filter((m) => m.status === "applied");
   if (applied.length === 0) return NextResponse.json({ ok: true, undone: 0, failed: 0, note: "nothing to undo" });
 
-  const provider = await createMailProvider();
+  const provider = await createMailProvider(userId ?? undefined);
   await provider.open();
   const undoneIds: number[] = [];
   let undone = 0;

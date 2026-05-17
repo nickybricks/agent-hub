@@ -15,25 +15,6 @@ import { isMultiTenant } from "../lib/db";
 import { withGuardrail, wrapEmail, sanitizeSubject } from "../lib/prompt-safety";
 
 const MT = isMultiTenant();
-const USER_ID = MT ? process.env.DEV_USER_ID : null;
-if (MT && !USER_ID) {
-  console.error("MULTI_TENANT=true requires DEV_USER_ID env var.");
-  process.exit(1);
-}
-
-async function getUnclassifiedSenders(
-  model: string,
-  minMessages: number,
-  limit?: number,
-): Promise<UnclassifiedSender[]> {
-  return MT
-    ? getUnclassifiedSendersPg(USER_ID!, model, minMessages, limit)
-    : getUnclassifiedSendersSqlite(model, minMessages, limit);
-}
-async function setSenderCategory(email: string, category: string, model: string): Promise<void> {
-  if (MT) await setSenderCategoryPg(USER_ID!, email, category, model);
-  else setSenderCategorySqlite(email, category, model);
-}
 
 const BATCH_SIZE = 20;
 
@@ -58,11 +39,24 @@ const SYSTEM_PROMPT = `You classify email senders into one of these categories:
 
 Return exactly one category per sender. Use the domain, display name, and recent subject lines as evidence.`;
 
+// Multi-tenant / Vercel has no data/config.json — classification is a cheap
+// structured task, so derive a sensible model from whichever API key is set.
+function envLLMConfig(): LLMConfig {
+  const provider = process.env.OPENAI_API_KEY ? "openai" : "anthropic";
+  const model = provider === "openai" ? "gpt-4o-mini" : "claude-haiku-4-5-20251001";
+  return { provider, model, systemPrompt: withGuardrail(SYSTEM_PROMPT) };
+}
+
 function loadLLMConfig(): LLMConfig {
-  const cfg = JSON.parse(readFileSync(join(process.cwd(), "data", "config.json"), "utf-8"));
-  const agent = cfg.agents.find((a: { id: string }) => a.id === "newsletter-summarizer");
-  if (!agent?.settings?.llm) throw new Error("No LLM config found in data/config.json");
-  return { ...agent.settings.llm, systemPrompt: withGuardrail(SYSTEM_PROMPT) } as LLMConfig;
+  if (MT) return envLLMConfig();
+  try {
+    const cfg = JSON.parse(readFileSync(join(process.cwd(), "data", "config.json"), "utf-8"));
+    const agent = cfg.agents.find((a: { id: string }) => a.id === "newsletter-summarizer");
+    if (!agent?.settings?.llm) throw new Error("No LLM config found in data/config.json");
+    return { ...agent.settings.llm, systemPrompt: withGuardrail(SYSTEM_PROMPT) } as LLMConfig;
+  } catch {
+    return envLLMConfig();
+  }
 }
 
 function renderSender(s: UnclassifiedSender): string {
@@ -99,29 +93,59 @@ export const classifyBatch = traceable(_classifyBatch, {
   run_type: "chain",
 });
 
-async function main() {
-  const args = process.argv.slice(2);
-  const limitArg = args.find((a) => a.startsWith("--limit="));
-  const minArg = args.find((a) => a.startsWith("--min-messages="));
-  const providerArg = args.find((a) => a.startsWith("--provider="));
-  const modelArg = args.find((a) => a.startsWith("--model="));
-  const limit = limitArg ? Number(limitArg.split("=")[1]) : undefined;
-  const minMessages = minArg ? Number(minArg.split("=")[1]) : 1;
+export interface ClassifyOptions {
+  limit?: number;
+  minMessages?: number;
+  provider?: string;
+  model?: string;
+  concurrency?: number;
+}
+
+export interface ClassifyResult {
+  classified: number;
+  batchErrors: number;
+}
+
+/**
+ * Classify unclassified senders. In multi-tenant mode `userId` is required and
+ * reads/writes are scoped to that user; in single-user mode pass undefined.
+ */
+export async function runClassify(
+  userId: string | undefined,
+  opts: ClassifyOptions = {},
+): Promise<ClassifyResult> {
+  if (MT && !userId) throw new Error("MULTI_TENANT=true requires a userId");
+
+  // Per-user dispatchers — closures over userId so concurrent runs stay isolated.
+  const getUnclassifiedSenders = (
+    model: string,
+    minMessages: number,
+    limit?: number,
+  ): Promise<UnclassifiedSender[]> =>
+    MT
+      ? getUnclassifiedSendersPg(userId!, model, minMessages, limit)
+      : Promise.resolve(getUnclassifiedSendersSqlite(model, minMessages, limit));
+  const setSenderCategory = async (email: string, category: string, model: string): Promise<void> => {
+    if (MT) await setSenderCategoryPg(userId!, email, category, model);
+    else setSenderCategorySqlite(email, category, model);
+  };
+
+  const limit = opts.limit;
+  const minMessages = opts.minMessages ?? 1;
 
   const config = loadLLMConfig();
-  if (providerArg) config.provider = providerArg.split("=")[1] as LLMConfig["provider"];
-  if (modelArg) config.model = modelArg.split("=")[1];
+  if (opts.provider) config.provider = opts.provider as LLMConfig["provider"];
+  if (opts.model) config.model = opts.model;
   console.log(`Classifying senders with ${config.provider}/${config.model}...`);
 
   const senders = await getUnclassifiedSenders(config.model, minMessages, limit);
   if (senders.length === 0) {
     console.log("No unclassified senders. Nothing to do.");
-    return;
+    return { classified: 0, batchErrors: 0 };
   }
   console.log(`${senders.length} senders to classify in batches of ${BATCH_SIZE}.`);
 
-  const concArg = args.find((a) => a.startsWith("--concurrency="));
-  const concurrency = concArg ? Math.max(1, Number(concArg.split("=")[1])) : 6;
+  const concurrency = opts.concurrency ? Math.max(1, opts.concurrency) : 6;
 
   const llm = createLLM(config);
   let done = 0;
@@ -171,6 +195,7 @@ async function main() {
   await tracedRun();
 
   console.log(`\nDone. Classified ${done} senders (${errors} batch error(s)).`);
+  return { classified: done, batchErrors: errors };
 }
 
 async function flushLangSmith() {
@@ -186,12 +211,28 @@ async function flushLangSmith() {
 }
 
 if (require.main === module) {
-  main()
+  const args = process.argv.slice(2);
+  const argVal = (p: string) => args.find((a) => a.startsWith(p))?.split("=")[1];
+  const limitArg = argVal("--limit=");
+  const minArg = argVal("--min-messages=");
+  const concArg = argVal("--concurrency=");
+  const userId = MT ? process.env.DEV_USER_ID : undefined;
+  if (MT && !userId) {
+    console.error("MULTI_TENANT=true requires DEV_USER_ID env var.");
+    process.exit(1);
+  }
+  runClassify(userId, {
+    limit: limitArg ? Number(limitArg) : undefined,
+    minMessages: minArg ? Number(minArg) : undefined,
+    provider: argVal("--provider="),
+    model: argVal("--model="),
+    concurrency: concArg ? Number(concArg) : undefined,
+  })
     .then(async () => {
       await flushLangSmith();
       process.exit(0);
     })
-    .catch(async (err) => {
+    .catch(async (err: unknown) => {
       console.error(err);
       await flushLangSmith();
       process.exit(1);

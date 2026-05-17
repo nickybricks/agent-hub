@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { readMailConfig } from "@/lib/mail-provider";
 import { upsertEnvVars } from "@/lib/env-file";
 import { readPkceCookie, clearPkceCookie } from "@/lib/oauth-pkce";
+import { isMultiTenant } from "@/lib/db";
+import { createClient } from "@/lib/supabase/server";
+import { saveVaultSecret } from "@/lib/credentials";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -49,7 +52,13 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Microsoft did not return a refresh_token." }, { status: 400 });
   }
 
-  upsertEnvVars({ MS_REFRESH_TOKEN: tokens.refresh_token });
+  if (isMultiTenant()) {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) await saveVaultSecret(user.id, "ms_refresh_token", tokens.refresh_token);
+  } else {
+    upsertEnvVars({ MS_REFRESH_TOKEN: tokens.refresh_token });
+  }
 
   const response = NextResponse.redirect(`${url.origin}/settings/mail?connected=outlook`);
   clearPkceCookie(response);
