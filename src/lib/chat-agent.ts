@@ -29,11 +29,17 @@ import { TOOL_SPECS, getToolSpec, runReadTool, previewMutation } from "./chat-to
 import * as sq from "./chat-db";
 import * as pg from "./chat-db-pg";
 import type { ChatMessage } from "./chat-db";
-import { writeMemory } from "./analyzer-db";
+import { writeMemory, listMemories } from "./analyzer-db";
 import { writeMemoryPg, listMemoriesPg } from "./analyzer-db-pg";
 import { getMailCredentials } from "./credentials";
 
 const MAX_ITERS = 6;
+// Single-chat model: one ever-growing thread. Replay only the last
+// RECENT_TURNS messages verbatim; once unsummarized history exceeds
+// SUMMARIZE_WHEN, fold everything older than the recent window into a rolling
+// summary memory so per-turn context stays bounded.
+const RECENT_TURNS = 24;
+const SUMMARIZE_WHEN = 40;
 const ANTHROPIC_FALLBACK_MODEL = "claude-haiku-4-5-20251001";
 const THINKING_BUDGET_TOKENS = 2048;
 const THINKING_MAX_TOKENS = 4096;
@@ -301,6 +307,96 @@ function toLangChain(history: ChatMessage[]): BaseMessage[] {
   return out;
 }
 
+// ── rolling conversation summary ─────────────────────────────────────────────
+
+const SUMMARY_PROMPT = `You maintain a running summary of a long user↔assistant conversation about the user's email mailbox.
+Fold the PRIOR SUMMARY and the OLDER MESSAGES below into one updated summary.
+Preserve durable facts, the user's stated preferences and decisions, anything still open or promised, and important context the assistant will need later. Drop pleasantries and resolved chit-chat.
+Write tight prose (no headings, no bullet lists), at most ~200 words. Output only the summary.`;
+
+interface SummaryState {
+  through: number; // highest message id already folded into `text`
+  text: string;
+}
+
+function readSummary(userId: string | null, threadId: number): Promise<SummaryState> {
+  const key = `chat_summary:${threadId}`;
+  const parse = (content?: string): SummaryState => {
+    try {
+      const o = JSON.parse(content ?? "");
+      return { through: Number(o.through) || 0, text: String(o.text ?? "") };
+    } catch {
+      return { through: 0, text: "" };
+    }
+  };
+  return (
+    userId
+      ? listMemoriesPg(userId, { kind: "system", key, limit: 1 }).then((r) => parse(r[0]?.content))
+      : Promise.resolve(parse(listMemories({ kind: "system", key, limit: 1 })[0]?.content))
+  );
+}
+
+function saveSummary(userId: string | null, threadId: number, s: SummaryState) {
+  const memo = {
+    kind: "system" as const,
+    key: `chat_summary:${threadId}`,
+    content: JSON.stringify(s),
+    source: "self" as const,
+  };
+  return userId ? writeMemoryPg(userId, memo) : Promise.resolve(writeMemory(memo));
+}
+
+/**
+ * Bound per-turn context for the single ever-growing chat: replay only the most
+ * recent messages verbatim; everything older is folded into a rolling summary
+ * memory. Returns the recent slice + the summary text to prepend as context.
+ */
+async function rollUpHistory(
+  userId: string | null,
+  threadId: number,
+  history: ChatMessage[],
+  base: LLMConfig,
+): Promise<{ recent: ChatMessage[]; summaryText: string }> {
+  const prior = await readSummary(userId, threadId);
+  const unsummarized = history.filter((m) => m.id > prior.through);
+
+  if (unsummarized.length <= SUMMARIZE_WHEN) {
+    return { recent: unsummarized, summaryText: prior.text };
+  }
+
+  const older = unsummarized.slice(0, unsummarized.length - RECENT_TURNS);
+  const recent = unsummarized.slice(-RECENT_TURNS);
+
+  const clf = buildClassifier(base);
+  if (!clf) {
+    // No model available to summarize — still cap replay so context stays
+    // bounded; older turns are dropped (rare: no API keys configured at all).
+    return { recent, summaryText: prior.text };
+  }
+
+  const rendered = older
+    .map((m) => `${m.role}${m.tool_name ? `(${m.tool_name})` : ""}: ${(m.content ?? "").slice(0, 1500)}`)
+    .join("\n");
+  const payload = `PRIOR SUMMARY:\n${prior.text || "(none)"}\n\nOLDER MESSAGES:\n${rendered}`;
+
+  let text = prior.text;
+  try {
+    const res = await clf.invoke(
+      [new SystemMessage(SUMMARY_PROMPT), new HumanMessage(payload)],
+      { tags: ["mail-analyzer", "chat", "summary"] },
+    );
+    const out = typeof res.content === "string" ? res.content : String(res.content);
+    if (out.trim()) {
+      text = out.trim();
+      const through = older[older.length - 1].id;
+      await saveSummary(userId, threadId, { through, text });
+    }
+  } catch {
+    // Summary call failed — fall back to the prior summary + capped window.
+  }
+  return { recent, summaryText: text };
+}
+
 // Extract text + reasoning deltas from a streamed chunk (provider-agnostic).
 function splitDelta(content: unknown): { text: string; thinking: string } {
   if (typeof content === "string") return { text: content, thinking: "" };
@@ -357,7 +453,18 @@ export async function* streamLoop(
     config.systemPrompt = withGuardrail(`${ONBOARDING_SYSTEM_PROMPT}\n\n${state}`);
   }
 
-  const msgs: BaseMessage[] = [new SystemMessage(config.systemPrompt), ...toLangChain(history)];
+  const { recent, summaryText } = await rollUpHistory(userId, threadId, history, config);
+  const msgs: BaseMessage[] = [
+    new SystemMessage(config.systemPrompt),
+    ...(summaryText
+      ? [
+          new SystemMessage(
+            `Summary of earlier conversation (context — not repeated verbatim below):\n${summaryText}`,
+          ),
+        ]
+      : []),
+    ...toLangChain(recent),
+  ];
   const callOpts = {
     signal,
     tags: ["mail-analyzer", "chat", `provider:${config.provider}`, `model:${config.model}`],

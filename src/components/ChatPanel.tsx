@@ -36,7 +36,6 @@ interface Asking {
 
 export default function ChatPanel() {
   const [threadId, setThreadId] = useState<number | null>(null);
-  const [threads, setThreads] = useState<ThreadInfo[]>([]);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [pending, setPending] = useState<Pending | null>(null);
   const [asking, setAsking] = useState<Asking | null>(null);
@@ -78,7 +77,6 @@ export default function ChatPanel() {
       const res = await fetch("/api/mail-analyzer/chat");
       const data = await res.json();
       const list: ThreadInfo[] = data.threads ?? [];
-      setThreads(list);
       return list;
     } catch {
       return [];
@@ -127,23 +125,27 @@ export default function ChatPanel() {
         /* ignore */
       }
 
-      // Start onboarding fresh when explicitly rebuilding, or for a brand-new
-      // user (no threads) who hasn't onboarded yet.
-      if ((forceRebuild || list.length === 0) && onboarded === false) {
-        newChat();
-        sendMessage("Hi — let's set up my mailbox.");
+      // Single chat: exactly one thread per user. Resume it if it exists.
+      const existing = list[0]?.id ?? null;
+      if (existing) await loadThread(existing);
+
+      // Brand-new user → create the one thread by sending the kickoff.
+      // Rebuild → continue onboarding in the SAME thread (onboarding is gated
+      // by the user_profile memory, not the thread, so no second chat).
+      if (onboarded === false && (forceRebuild || !existing)) {
+        if (!existing) newChat();
+        sendMessage("Hi — let's set up my mailbox.", existing);
         return;
       }
-      if (list[0]) await loadThread(list[0].id);
 
       // Mid-pipeline reload: the scan→classify chain runs server-side in
       // Inngest, but loadThread just cleared any pipeline state. If onboarding
       // is still active and this thread already kicked off run_pipeline,
       // re-seed the pipeline so the live loading card + poll resume — otherwise
       // the user sees a dead transcript and starts chatting at the agent.
-      if (onboarded === false && list[0]) {
+      if (onboarded === false && existing) {
         try {
-          const td = await fetch(`/api/mail-analyzer/chat?threadId=${list[0].id}`).then((r) =>
+          const td = await fetch(`/api/mail-analyzer/chat?threadId=${existing}`).then((r) =>
             r.json(),
           );
           const started = (td.messages ?? []).some(
@@ -173,7 +175,6 @@ export default function ChatPanel() {
             // The greeting is already persisted; reload that thread so the
             // transcript is exactly what the server has (no state mixing).
             await loadThread(g.threadId);
-            loadThreads();
           }
         } catch {
           /* a missing greeting is never an error worth surfacing */
@@ -308,13 +309,13 @@ export default function ChatPanel() {
     }
   }
 
-  function sendMessage(message: string) {
+  function sendMessage(message: string, tid: number | null = threadId) {
     if (!message.trim()) return;
     setMessages((m) => [
       ...m,
       { id: Date.now(), role: "user", content: message, tool_name: null, created_at: "" },
     ]);
-    run("/api/mail-analyzer/chat", { threadId, message });
+    run("/api/mail-analyzer/chat", { threadId: tid, message });
   }
 
   function send() {
@@ -411,30 +412,6 @@ export default function ChatPanel() {
           <p className="truncate text-xs text-muted-foreground">
             Ask about your mailbox or instruct the agent — it asks before every change.
           </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {threads.length > 0 && (
-            <select
-              value={threadId ?? ""}
-              disabled={busy}
-              onChange={(e) => {
-                const v = e.target.value;
-                if (v) loadThread(Number(v));
-              }}
-              className="max-w-[160px] rounded-md border border-input bg-background px-2 py-1.5 text-xs disabled:opacity-60"
-              aria-label="Past chats"
-            >
-              {threadId == null && <option value="">New chat…</option>}
-              {threads.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {(t.title || `Chat #${t.id}`).slice(0, 40)}
-                </option>
-              ))}
-            </select>
-          )}
-          <Button variant="ghost" size="sm" onClick={newChat} disabled={busy}>
-            New chat
-          </Button>
         </div>
       </header>
 
