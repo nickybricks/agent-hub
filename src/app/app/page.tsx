@@ -111,20 +111,22 @@ export default function AppShell() {
         <div ref={rowRef} className="flex min-h-0 flex-1">
           {/* Left: dashboard */}
           <section className="flex min-w-0 flex-1 flex-col">
-            <nav className="flex shrink-0 gap-2 overflow-x-auto border-b border-border px-4 py-3 [-ms-overflow-style:none] [scrollbar-width:none]">
-              {TABS.map((t) => (
-                <button
-                  key={t}
-                  onClick={() => select(t)}
-                  className={`shrink-0 whitespace-nowrap rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-                    tab === t
-                      ? "bg-[var(--brand)] text-white"
-                      : "border border-border text-muted hover:text-foreground"
-                  }`}
-                >
-                  {t}
-                </button>
-              ))}
+            <nav className="shrink-0 overflow-x-auto border-b border-border py-3 [-ms-overflow-style:none] [scrollbar-width:none]">
+              <div className="mx-auto flex w-full max-w-5xl gap-2 px-8">
+                {TABS.map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => select(t)}
+                    className={`shrink-0 whitespace-nowrap rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                      tab === t
+                        ? "bg-[var(--brand)] text-white"
+                        : "border border-border text-muted hover:text-foreground"
+                    }`}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
             </nav>
             <div className="flex-1 overflow-y-auto">
               {TABS.filter((t) => mounted.has(t)).map((t) => (

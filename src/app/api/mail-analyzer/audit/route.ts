@@ -16,6 +16,9 @@ import { createClient } from "@/lib/supabase/server";
 import { runAudit } from "@/agent/audit";
 
 export const dynamic = "force-dynamic";
+// runAudit loads the full mailbox and scores it inline; the default function
+// timeout is too short for a large account.
+export const maxDuration = 300;
 
 interface MessageDetail {
   id: string;

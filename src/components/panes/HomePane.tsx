@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { Button } from "@/components/ui/Button";
+import { VolumeChart } from "@/components/ui/VolumeChart";
+import { CategoryDonut, type CategoryRow } from "@/components/ui/CategoryDonut";
 import { useRevalidate } from "@/components/DataSync";
 
 interface Overview {
@@ -23,12 +25,21 @@ interface Overview {
   } | null;
 }
 
-interface Move {
-  id: number;
-  from_mailbox: string;
-  to_mailbox: string;
-  status: "applied" | "undone" | "failed";
-  applied_at: string;
+interface CategoryStat {
+  category: string;
+  sender_count: number;
+  message_count: number;
+}
+
+interface VolumeRow {
+  day: string;
+  message_count: number;
+}
+
+interface TopSender {
+  sender_email: string;
+  sender_name: string | null;
+  message_count: number;
 }
 
 function fmt(n: number | null | undefined) {
@@ -60,9 +71,12 @@ export default function HomePane({
   onNavigate: (tab: string) => void;
 }) {
   const [overview, setOverview] = useState<Overview | null>(null);
+  const [categories, setCategories] = useState<CategoryStat[]>([]);
+  const [volume, setVolume] = useState<VolumeRow[]>([]);
+  const [topSenders, setTopSenders] = useState<TopSender[]>([]);
   const [reviewCount, setReviewCount] = useState(0);
   const [proposalCount, setProposalCount] = useState(0);
-  const [moves, setMoves] = useState<Move[]>([]);
+  const [topFolder, setTopFolder] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [now, setNow] = useState<number | null>(() => Date.now());
@@ -74,31 +88,43 @@ export default function HomePane({
   }, []);
 
   const loadAll = useCallback(async () => {
-    // One failing/500 endpoint must never blackhole the whole Home view:
-    // fetch each independently, tolerate non-JSON/errors, always clear loading.
+    // One failing endpoint must never blackhole the whole view: fetch each
+    // independently, tolerate non-JSON/errors, always clear loading.
     const get = async (url: string): Promise<Record<string, unknown>> => {
       try {
-        const r = await fetch(url);
-        return (await r.json()) as Record<string, unknown>;
+        return (await (await fetch(url)).json()) as Record<string, unknown>;
       } catch {
         return {};
       }
     };
     try {
-      const [ov, rv, pr, hist] = await Promise.all([
+      const [ov, cat, vol, snd, rv, pr] = await Promise.all([
         get("/api/mail-analyzer/overview"),
+        get("/api/mail-analyzer/categories"),
+        get("/api/mail-analyzer/volume-by-day"),
+        get("/api/mail-analyzer/top-senders?category=all"),
         get("/api/mail-analyzer/review"),
         get("/api/mail-analyzer/proposals"),
-        get("/api/mail-analyzer/history?limit=6"),
       ]);
       setOverview(ov as unknown as Overview);
+      // Postgres COUNT() comes back as a string — coerce to numbers so the
+      // health/newsletter math doesn't string-concatenate.
+      setCategories(
+        (((cat.categories as CategoryStat[]) ?? []).filter(Boolean)).map((c) => ({
+          category: c.category,
+          sender_count: Number(c.sender_count) || 0,
+          message_count: Number(c.message_count) || 0,
+        })),
+      );
+      setVolume(((vol.rows as VolumeRow[]) ?? []).filter(Boolean));
+      setTopSenders(((snd.senders as TopSender[]) ?? []).slice(0, 5));
       setReviewCount(((rv.items as unknown[]) ?? []).length);
-      const pending = (
-        (pr.proposals as { rules: { status: string }[] }[]) ?? []
-      ).reduce((sum, p) => sum + p.rules.filter((r) => r.status === "proposed").length, 0);
-      setProposalCount(pending);
-      setMoves(
-        (((hist.moves as Move[]) ?? []).filter((m) => m.status === "applied")).slice(0, 6),
+      const proposals = (pr.proposals as { folder: { path: string }; rules: { status: string }[] }[]) ?? [];
+      setProposalCount(
+        proposals.reduce((s, p) => s + p.rules.filter((r) => r.status === "proposed").length, 0),
+      );
+      setTopFolder(
+        proposals.find((p) => p.rules.some((r) => r.status === "proposed"))?.folder.path ?? null,
       );
     } finally {
       setLoading(false);
@@ -106,15 +132,13 @@ export default function HomePane({
   }, []);
 
   useEffect(() => {
-    // loadAll only setStates after an awaited fetch, so this is not a
-    // synchronous cascading render.
     loadAll();
   }, [loadAll]);
 
   // Chat changed something → refresh (deferred while this tab is hidden).
   useRevalidate(active, loadAll);
 
-  // Poll overview every 2s while a scan is running, then reload everything on finish.
+  // Poll overview every 2s while a scan is running, then reload everything.
   useEffect(() => {
     const running = overview?.lastRun?.status === "running";
     if (!running) {
@@ -148,7 +172,7 @@ export default function HomePane({
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-3xl px-8 py-10">
+      <div className="mx-auto max-w-5xl px-8 py-10">
         <p className="text-sm text-muted">Loading…</p>
       </div>
     );
@@ -164,6 +188,22 @@ export default function HomePane({
     !!finishedAt &&
     now !== null &&
     now - new Date(finishedAt).getTime() > 60 * 60 * 1000;
+
+  // Derived metrics — all computed from real data, no invented numbers.
+  const total = totals?.total_messages ?? 0;
+  const unread = totals?.unread_messages ?? 0;
+  const unreadRatio = total ? unread / total : 0;
+  const newsletterMsgs =
+    categories.find((c) => c.category === "newsletter")?.message_count ?? 0;
+  const newsletterShare = total ? Math.round((newsletterMsgs / total) * 100) : 0;
+  const totalSenders = categories.reduce((s, c) => s + (c.sender_count ?? 0), 0);
+  const unclassifiedSenders =
+    categories.find((c) => c.category === "unclassified")?.sender_count ?? 0;
+  const unclassifiedRatio = totalSenders ? unclassifiedSenders / totalSenders : 0;
+  // Health = 100 minus penalties for unread mail and unclassified senders.
+  const health = Math.round(
+    Math.max(0, Math.min(100, 100 - 60 * unreadRatio - 40 * unclassifiedRatio)),
+  );
 
   let statusLine: React.ReactNode = "No scan yet.";
   if (isRunning) {
@@ -185,46 +225,70 @@ export default function HomePane({
   }
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6 px-8 py-10">
+    <div className="mx-auto flex max-w-5xl flex-col gap-6 px-8 py-10">
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="mb-1 text-2xl font-semibold tracking-tight">Your mailbox</h1>
+          <h1 className="mb-1 text-2xl font-semibold tracking-tight">
+            Your mailbox is breathing.
+          </h1>
           <p className="text-sm text-muted">{statusLine}</p>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={triggerScan}
-          disabled={scanning || isRunning}
-        >
-          {isRunning || scanning ? "Scanning…" : "Refresh now"}
+        <Button variant="ghost" size="sm" onClick={triggerScan} disabled={scanning || isRunning}>
+          {isRunning || scanning ? "Syncing…" : "Sync now"}
         </Button>
       </div>
 
       {!hasData && !isRunning ? (
         <div className="rounded-xl border border-border bg-warning-soft p-4 text-sm">
-          No data yet. Click <em>Refresh now</em> to scan your mailbox, or ask the assistant
-          to get started.
+          No data yet. Click <em>Sync now</em> to scan your mailbox, or ask the assistant to get
+          started.
         </div>
       ) : (
         <>
           {isStale && (
             <div className="rounded-xl border border-border bg-warning-soft p-3 text-sm">
-              Data may be stale (last scan {fmtDate(finishedAt)}). Click{" "}
-              <em>Refresh now</em> to re-scan.
+              Data may be stale (last scan {fmtDate(finishedAt)}). Click <em>Sync now</em> to
+              re-scan.
             </div>
           )}
 
-          {/* Key counts */}
+          {/* Key metrics — all real */}
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-            <MetricCard label="Messages" value={fmt(totals?.total_messages)} index={0} />
-            <MetricCard label="Unread" value={fmt(totals?.unread_messages)} index={1} />
-            <MetricCard label="Senders" value={fmt(totals?.sender_count)} index={2} />
-            <MetricCard label="Mailboxes" value={fmt(totals?.mailbox_count)} index={3} />
+            <MetricCard label="Messages" value={fmt(total)} index={0} />
+            <MetricCard
+              label="Newsletter share"
+              value={`${newsletterShare}%`}
+              hint="of all mail"
+              index={1}
+            />
+            <MetricCard
+              label="Health score"
+              value={health}
+              hint="100 − unread & unclassified penalties"
+              index={2}
+            />
+            <MetricCard
+              label="Unread"
+              value={`${Math.round(unreadRatio * 100)}%`}
+              hint={`${fmt(unread)} messages`}
+              index={3}
+            />
           </div>
 
-          {/* Attention: review queue + proposals */}
+          {/* Inflow + composition */}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div className="card p-5 lg:col-span-2">
+              <h2 className="mb-4 text-sm font-semibold">Inbox inflow · last 90 days</h2>
+              <VolumeChart data={volume} />
+            </div>
+            <div className="card p-5">
+              <h2 className="mb-4 text-sm font-semibold">Composition</h2>
+              <CategoryDonut data={categories as CategoryRow[]} />
+            </div>
+          </div>
+
+          {/* Attention: review queue + next action */}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="card flex items-center justify-between gap-4 p-5">
               <div>
@@ -247,15 +311,17 @@ export default function HomePane({
             </div>
 
             <div className="card flex items-center justify-between gap-4 p-5">
-              <div>
+              <div className="min-w-0">
                 <p className="text-sm font-medium">
                   {proposalCount > 0
                     ? `${proposalCount} folder proposal${proposalCount === 1 ? "" : "s"}`
                     : "No new proposals"}
                 </p>
-                <p className="mt-0.5 text-xs text-muted">
+                <p className="mt-0.5 truncate text-xs text-muted">
                   {proposalCount > 0
-                    ? "Review and apply them"
+                    ? topFolder
+                      ? `Next: route mail into “${topFolder}”`
+                      : "Review and apply them"
                     : "Proposals appear after a scan."}
                 </p>
               </div>
@@ -267,40 +333,43 @@ export default function HomePane({
             </div>
           </div>
 
-          {/* Recent moves */}
+          {/* Top senders — compact, not a table */}
           <div className="card overflow-hidden">
             <div className="flex items-center justify-between border-b border-border px-5 py-3">
-              <h2 className="text-sm font-semibold">Recent moves</h2>
-              {moves.length > 0 && (
+              <h2 className="text-sm font-semibold">Top senders</h2>
+              {topSenders.length > 0 && (
                 <button
-                  onClick={() => onNavigate("History")}
+                  onClick={() => onNavigate("Audit")}
                   className="text-xs text-muted transition-colors hover:text-foreground"
                 >
-                  View all →
+                  See analysis →
                 </button>
               )}
             </div>
-            {moves.length === 0 ? (
-              <p className="px-5 py-6 text-center text-sm text-muted">
-                No moves yet. Applied proposals show up here.
-              </p>
+            {topSenders.length === 0 ? (
+              <p className="px-5 py-6 text-center text-sm text-muted">No senders yet.</p>
             ) : (
               <div className="divide-y divide-border">
-                {moves.map((m) => (
-                  <div
-                    key={m.id}
-                    className="flex items-center justify-between gap-4 px-5 py-2.5 text-sm"
-                  >
-                    <p className="min-w-0 truncate">
-                      <span className="text-muted">{m.from_mailbox}</span>
-                      <span className="mx-2 text-muted">→</span>
-                      <span className="font-medium">{m.to_mailbox}</span>
-                    </p>
-                    <span className="shrink-0 text-xs text-muted">
-                      {fmtRelative(m.applied_at, now)}
-                    </span>
-                  </div>
-                ))}
+                {topSenders.map((s) => {
+                  const label = s.sender_name?.trim() || s.sender_email;
+                  return (
+                    <div
+                      key={s.sender_email}
+                      className="flex items-center gap-3 px-5 py-2.5 text-sm"
+                    >
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--brand-soft)] text-xs font-semibold uppercase text-[var(--brand)]">
+                        {label.charAt(0)}
+                      </span>
+                      <p className="min-w-0 flex-1 truncate">
+                        <span className="font-medium">{label}</span>
+                        <span className="ml-2 text-xs text-muted">{s.sender_email}</span>
+                      </p>
+                      <span className="shrink-0 tabular-nums text-muted">
+                        {fmt(s.message_count)}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

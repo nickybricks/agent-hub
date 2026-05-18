@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { useToast } from "@/components/ui/Toast";
 import { useRevalidate } from "@/components/DataSync";
 
 type Kind =
@@ -87,6 +88,7 @@ export default function AuditPane({ active }: { active: boolean }) {
   const [running, setRunning] = useState(false);
   const [openKind, setOpenKind] = useState<Kind | null>(null);
   const [openFinding, setOpenFinding] = useState<number | null>(null);
+  const { toast } = useToast();
 
   const load = useCallback(async () => {
     const res = await fetch("/api/mail-analyzer/audit");
@@ -103,8 +105,21 @@ export default function AuditPane({ active }: { active: boolean }) {
   const runAudit = async () => {
     setRunning(true);
     try {
-      await fetch("/api/mail-analyzer/audit", { method: "POST" });
+      const res = await fetch("/api/mail-analyzer/audit", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast(data.error ?? `Audit failed (HTTP ${res.status})`, "error");
+        return;
+      }
       await load();
+      toast(
+        data.findings > 0
+          ? `Audit complete — ${data.findings} finding${data.findings === 1 ? "" : "s"}.`
+          : "Audit complete — nothing flagged.",
+        "success",
+      );
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Audit failed", "error");
     } finally {
       setRunning(false);
     }

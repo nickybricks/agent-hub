@@ -451,6 +451,9 @@ export async function runAudit(userId: string | null = null): Promise<number> {
     "hygiene_stale_sender",
     "hygiene_storage_hog",
   ];
+  const runId = userId ? await startAuditRunPg(userId) : startAuditRunSqlite();
+
+  try {
   if (userId) await clearAuditFindingsPg(userId, kinds);
   else clearAuditFindingsSqlite(kinds);
 
@@ -535,7 +538,16 @@ export async function runAudit(userId: string | null = null): Promise<number> {
 
   if (userId) await insertAuditFindingsPg(userId, findings);
   else insertAuditFindingsSqlite(findings);
+
+  if (userId) await finishAuditRunPg(userId, runId, findings.length);
+  else finishAuditRunSqlite(runId, findings.length);
   return findings.length;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (userId) await failAuditRunPg(userId, runId, msg);
+    else failAuditRunSqlite(runId, msg);
+    throw err;
+  }
 }
 
 async function main() {
