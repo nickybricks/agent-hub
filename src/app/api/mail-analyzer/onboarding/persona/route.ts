@@ -40,6 +40,13 @@ export async function POST(req: Request) {
   });
   if (prev) await supersedeMemoryPg(userId, prev.id, newId);
 
+  // The persona is now confirmed — retire the durable onboarding draft so it
+  // isn't re-served or left dangling.
+  const draft = (
+    await listMemoriesPg(userId, { kind: "system", key: "onboarding_persona_draft", limit: 1 })
+  )[0];
+  if (draft) await supersedeMemoryPg(userId, draft.id, newId);
+
   const { appendMessagePg } = await import("@/lib/chat-db-pg");
   await appendMessagePg(userId, {
     thread_id: threadId,

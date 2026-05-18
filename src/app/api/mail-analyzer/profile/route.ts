@@ -10,13 +10,34 @@ interface ProfilePayload {
   persona: AgentMemory | null;
   prefs: AgentMemory[];
   memories: AgentMemory[];
+  activity: AgentMemory[];
 }
+
+// The proposal audit trail (raw routing-rule dumps) is not a "learning" about
+// the user — keep it out of the readable sections and behind its own collapse.
+const ACTIVITY_KINDS = new Set([
+  "rule_rationale",
+  "proposal_run",
+  "apply_action",
+  "audit_decision",
+  "system",
+]);
 
 function shape(all: AgentMemory[]): ProfilePayload {
   const persona = all.find((m) => m.kind === "user_profile") ?? null;
-  const prefs = all.filter((m) => m.kind === "user_pref");
-  const memories = all.filter((m) => m.kind !== "user_profile" && m.kind !== "user_pref");
-  return { persona, prefs, memories };
+  // Questionnaire = only the onboarding answers (user_pref keyed onboarding:*).
+  const prefs = all.filter(
+    (m) => m.kind === "user_pref" && (m.key ?? "").startsWith("onboarding:"),
+  );
+  // Genuine learnings: non-onboarding prefs, sender facts, recorded mistakes.
+  const memories = all.filter(
+    (m) =>
+      (m.kind === "user_pref" && !(m.key ?? "").startsWith("onboarding:")) ||
+      m.kind === "sender_fact" ||
+      m.kind === "mistake",
+  );
+  const activity = all.filter((m) => ACTIVITY_KINDS.has(m.kind));
+  return { persona, prefs, memories, activity };
 }
 
 // ── SQLite (local dev) ───────────────────────────────────────────────────────
@@ -51,7 +72,7 @@ async function getMultiTenant() {
   } catch (e) {
     console.error("profile route error", e);
     return NextResponse.json(
-      { error: describeError(e), persona: null, prefs: [], memories: [] },
+      { error: describeError(e), persona: null, prefs: [], memories: [], activity: [] },
       { status: 200 },
     );
   }

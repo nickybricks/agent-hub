@@ -10,6 +10,7 @@ import {
   insertFolderRule,
   setProposedFolderStatus,
   getProposedFolderByPath,
+  clearPendingProposals,
   getDb,
   SenderForProposal,
   writeMemory,
@@ -25,6 +26,7 @@ import {
   insertFolderRulePg,
   setProposedFolderStatusPg,
   getProposedFolderByPathPg,
+  clearPendingProposalsPg,
   writeMemoryPg,
   listMemoriesPg,
 } from "../lib/analyzer-db-pg";
@@ -58,7 +60,7 @@ const ProposalSchema = z.object({
 const SYSTEM_PROMPT = `You are designing a folder structure for an email account.
 The user wants a small, sensible taxonomy — 5 to 12 top-level folders, with optional one-level nesting for high-volume categories (e.g. "Newsletters/Tech").
 
-The user's existing folders are provided as context so you can see what's already there. You may keep, rename, split, merge, or replace them — propose what you think is the cleanest structure. Do NOT touch system folders (INBOX, Sent, Drafts, Trash, Spam, Junk, Archive).
+The user's existing folders are provided as context. STRONGLY prefer reusing an existing folder verbatim (exact same path/name) when one already covers a category — do not coin a synonym ("Housing" when "Real Estate" exists, "Parcels" when "Shopping/Orders" exists). Only rename or split when the existing name is genuinely unfit. This keeps re-runs stable and avoids near-duplicate folders. Do NOT touch system folders (INBOX, Sent, Drafts, Trash, Spam, Junk, Archive).
 
 Group senders together; do not propose one folder per sender. For each folder, list the rules that route mail to it (sender_domain when many senders share a domain, sender_email for one-off important senders).
 Skip generic categories like "Other" or "Misc". Skip senders that should stay in Inbox (personal mail, real humans).
@@ -226,6 +228,12 @@ Design the folder structure. You have the full picture: existing folders, where 
     }
   );
   const out = await invokeProposal({ system: config.systemPrompt, user: userPrompt });
+
+  // Replace any prior un-acted proposal so a re-run (e.g. profile rebuild)
+  // doesn't stack a second taxonomy on top of the first. Accepted/applied
+  // rules and folders are preserved.
+  if (userId) await clearPendingProposalsPg(userId);
+  else clearPendingProposals();
 
   const folderInputs = out.folders.map((f) => ({ path: f.path, rationale: f.rationale }));
   if (userId) await insertProposedFoldersPg(userId, folderInputs);

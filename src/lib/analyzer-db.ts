@@ -588,6 +588,20 @@ export function setProposedFolderStatus(id: number, status: ProposedFolderStatus
   ).run(status, new Date().toISOString(), id);
 }
 
+/**
+ * Drop the previous *un-acted* machine proposal so a re-run replaces it instead
+ * of stacking a second taxonomy on top. Only deletes folders still `proposed`
+ * and rules that are `llm_proposal` + `proposed`; anything the user accepted /
+ * rejected / applied is kept. History stays in the proposal_run memory.
+ */
+export function clearPendingProposals() {
+  const db = getDb();
+  db.prepare(
+    `DELETE FROM folder_rules WHERE source = 'llm_proposal' AND status = 'proposed'`
+  ).run();
+  db.prepare(`DELETE FROM proposed_folders WHERE status = 'proposed'`).run();
+}
+
 export type FolderRuleMatchType = "sender_email" | "sender_domain";
 export type FolderRuleAction = "route_to" | "never_spam" | "always_spam" | "leave";
 export type FolderRuleStatus = "proposed" | "accepted" | "rejected";

@@ -21,6 +21,23 @@ export async function POST() {
   const { data: { user }, error } = await supabase.auth.getUser();
   if (error || !user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
+  // The draft is synthesised once and persisted as a `system` memory so a
+  // mid-onboarding reload re-shows the *same* persona instead of generating a
+  // fresh (different) one. Cleared on confirm / rebuild.
+  const { listMemoriesPg, writeMemoryPg } = await import("@/lib/analyzer-db-pg");
+  const existing = (
+    await listMemoriesPg(user.id, { kind: "system", key: "onboarding_persona_draft", limit: 1 })
+  )[0];
+  if (existing?.content?.trim()) {
+    return NextResponse.json({ persona: existing.content });
+  }
+
   const persona = await synthesizePersona(user.id);
+  await writeMemoryPg(user.id, {
+    kind: "system",
+    key: "onboarding_persona_draft",
+    content: persona,
+    source: "llm",
+  });
   return NextResponse.json({ persona });
 }

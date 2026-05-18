@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { ArrowUp, Mic, Square } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useDataBump } from "@/components/DataSync";
 
@@ -35,6 +36,17 @@ interface Asking {
   options: string[];
 }
 
+// One tidy representation of "a tool ran", shared by the live stream and
+// persisted tool-role history so both surfaces look identical.
+function ToolPill({ name, running }: { name: string; running: boolean }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-[var(--brand-soft)] px-2.5 py-0.5 text-xs font-medium text-[var(--brand)] transition-opacity">
+      <span aria-hidden>{running ? "⏳" : "✓"}</span>
+      {name}
+    </span>
+  );
+}
+
 export default function ChatPanel() {
   const [threadId, setThreadId] = useState<number | null>(null);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
@@ -46,8 +58,6 @@ export default function ChatPanel() {
 
   // Live (in-flight turn) buffers.
   const [liveText, setLiveText] = useState("");
-  const [liveThinking, setLiveThinking] = useState("");
-  const [showThinking, setShowThinking] = useState(false);
   const [chips, setChips] = useState<ToolChip[]>([]);
 
   // Onboarding surfaces.
@@ -73,7 +83,7 @@ export default function ChatPanel() {
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, pending, busy, liveText, liveThinking, chips]);
+  }, [messages, pending, busy, liveText, chips]);
 
   async function loadThreads(): Promise<ThreadInfo[]> {
     try {
@@ -225,7 +235,6 @@ export default function ChatPanel() {
 
   function resetLive() {
     setLiveText("");
-    setLiveThinking("");
     setChips([]);
   }
 
@@ -245,9 +254,10 @@ export default function ChatPanel() {
         if (!line.startsWith("data:")) continue;
         const ev = JSON.parse(line.slice(5).trim());
         if (ev.type === "token") setLiveText((s) => s + ev.delta);
+        // `thinking` deltas are consumed but intentionally not rendered —
+        // the tool chips are the only agent-activity surface we show.
         else if (ev.type === "thinking") {
-          setLiveThinking((s) => s + ev.delta);
-          setShowThinking(true);
+          /* discard */
         } else if (ev.type === "tool") {
           setChips((c) => {
             if (ev.phase === "done") {
@@ -414,83 +424,57 @@ export default function ChatPanel() {
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header */}
-      <header className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
-        <div className="min-w-0">
-          <h2 className="text-sm font-semibold tracking-tight">Mailbox chat</h2>
-          <p className="truncate text-xs text-muted-foreground">
-            Ask about your mailbox or instruct the agent — it asks before every change.
-          </p>
-        </div>
-      </header>
-
-      {/* Messages (scrollable) */}
-      <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+      {/* Messages (scrollable) — no header; the app header carries the title.
+          Content is a fixed-width centered reading column (not pane-wide). */}
+      <div className="flex-1 overflow-y-auto px-5 py-5">
+        <div className="mx-auto w-full max-w-2xl space-y-4">
         {messages.length === 0 && !busy && (
-          <div className="card p-4 text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             e.g. “The folder proposals look off — walk me through them and suggest a cleaner
             taxonomy.”
-          </div>
+          </p>
         )}
 
         {messages.map((m) => {
           if (m.role === "tool") {
             return (
-              <div
-                key={m.id}
-                className="border-l-2 border-border pl-3 font-mono text-xs text-muted-foreground"
-              >
-                🔧 {m.tool_name}: {(m.content ?? "").slice(0, 300)}
+              <div key={m.id}>
+                <ToolPill name={m.tool_name ?? "tool"} running={false} />
               </div>
             );
           }
-          const mine = m.role === "user";
+          if (m.role === "user") {
+            return (
+              <div
+                key={m.id}
+                className="ml-auto max-w-[85%] whitespace-pre-wrap rounded-2xl bg-[var(--brand-soft)] px-4 py-2 text-sm leading-relaxed text-foreground"
+              >
+                {m.content}
+              </div>
+            );
+          }
           return (
             <div
               key={m.id}
-              className={`card whitespace-pre-wrap p-3 text-sm leading-relaxed ${
-                mine ? "ml-8 bg-accent/40" : "mr-8"
-              }`}
+              className="max-w-[92%] whitespace-pre-wrap text-sm leading-relaxed"
             >
-              <div className="mb-1 text-xs text-muted-foreground">{mine ? "You" : "Agent"}</div>
               {m.content}
             </div>
           );
         })}
 
         {/* Live in-flight turn */}
-        {busy && (liveThinking || liveText || chips.length > 0) && (
-          <div className="mr-8 space-y-2">
-            {liveThinking && (
-              <div className="card p-3 text-xs">
-                <button
-                  className="text-muted-foreground hover:text-foreground"
-                  onClick={() => setShowThinking((v) => !v)}
-                >
-                  {showThinking ? "▾" : "▸"} Thinking
-                </button>
-                {showThinking && (
-                  <div className="mt-2 whitespace-pre-wrap italic text-muted-foreground">
-                    {liveThinking}
-                  </div>
-                )}
-              </div>
-            )}
+        {busy && (liveText || chips.length > 0) && (
+          <div className="space-y-2">
             {chips.length > 0 && (
-              <div className="flex flex-wrap gap-1">
+              <div className="flex flex-wrap gap-1.5">
                 {chips.map((c, i) => (
-                  <span
-                    key={i}
-                    className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground"
-                  >
-                    {c.phase === "running" ? "⏳" : "✓"} {c.name}
-                  </span>
+                  <ToolPill key={i} name={c.name} running={c.phase === "running"} />
                 ))}
               </div>
             )}
             {liveText && (
-              <div className="card whitespace-pre-wrap p-3 text-sm leading-relaxed">
-                <div className="mb-1 text-xs text-muted-foreground">Agent</div>
+              <div className="max-w-[92%] whitespace-pre-wrap text-sm leading-relaxed">
                 {liveText}
               </div>
             )}
@@ -636,10 +620,11 @@ export default function ChatPanel() {
           </div>
         )}
 
-        {busy && !liveText && !liveThinking && chips.length === 0 && (
+        {busy && !liveText && chips.length === 0 && (
           <div className="text-sm text-muted-foreground">Agent is thinking…</div>
         )}
         <div ref={endRef} />
+        </div>
       </div>
 
       {error && (
@@ -648,29 +633,58 @@ export default function ChatPanel() {
         </div>
       )}
 
-      {/* Composer */}
-      <div className="border-t border-border p-3">
-        <textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask or instruct…"
-          disabled={busy}
-          className="min-h-[64px] w-full rounded-md border border-input bg-background p-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
-          onKeyDown={(e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") send();
-          }}
-        />
-        <div className="mt-2 flex items-center justify-between">
-          <span className="text-xs text-muted-foreground">⌘/Ctrl + Enter to send</span>
+      {/* Composer — same fixed-width centered island as the message column */}
+      <div className="px-4 pb-4 pt-3">
+        <div className="mx-auto w-full max-w-2xl">
+        <div className="flex items-end gap-2 rounded-2xl border border-input bg-background px-3 py-2 focus-within:ring-2 focus-within:ring-[var(--brand)]">
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Ask or instruct…"
+            disabled={busy}
+            rows={3}
+            className="max-h-48 min-h-[76px] flex-1 resize-none bg-transparent py-1 text-sm focus:outline-none disabled:opacity-60"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                send();
+              }
+            }}
+          />
+          {/* Voice input — placeholder for future Whisper support */}
+          <button
+            type="button"
+            disabled
+            aria-label="Voice input (coming soon)"
+            title="Voice input (coming soon)"
+            className="rounded-full p-2 text-muted-foreground opacity-50"
+          >
+            <Mic size={18} />
+          </button>
           {busy ? (
-            <Button variant="ghost" onClick={stop}>
-              Stop
-            </Button>
+            <button
+              type="button"
+              onClick={stop}
+              aria-label="Stop"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--brand)] text-white transition hover:bg-[var(--brand-hover)]"
+            >
+              <Square size={15} />
+            </button>
           ) : (
-            <Button onClick={send} disabled={!input.trim()}>
-              Send
-            </Button>
+            <button
+              type="button"
+              onClick={send}
+              disabled={!input.trim()}
+              aria-label="Send"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--brand)] text-white transition hover:bg-[var(--brand-hover)] disabled:opacity-40"
+            >
+              <ArrowUp size={18} />
+            </button>
           )}
+        </div>
+        <p className="mt-1.5 px-1 text-xs text-muted-foreground">
+          Enter to send · Shift + Enter for a new line
+        </p>
         </div>
       </div>
     </div>

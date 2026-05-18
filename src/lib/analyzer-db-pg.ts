@@ -1234,6 +1234,24 @@ export async function setProposedFolderStatusPg(
   `);
 }
 
+/**
+ * Drop this user's previous *un-acted* machine proposal so a re-run replaces it
+ * instead of stacking a second taxonomy. Only deletes folders still `proposed`
+ * and rules that are `llm_proposal` + `proposed`; accepted/rejected/applied
+ * rows are kept. History stays in the proposal_run memory.
+ */
+export async function clearPendingProposalsPg(userId: string): Promise<void> {
+  const db = getDrizzleDb();
+  await db.execute(sql`
+    DELETE FROM folder_rules
+    WHERE user_id = ${userId} AND source = 'llm_proposal' AND status = 'proposed'
+  `);
+  await db.execute(sql`
+    DELETE FROM proposed_folders
+    WHERE user_id = ${userId} AND status = 'proposed'
+  `);
+}
+
 export async function updateProposedFolderPathPg(
   userId: string,
   id: number,

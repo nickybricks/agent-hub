@@ -70,6 +70,12 @@ export default function ProposalsPane({ active }: { active: boolean }) {
   const [makeRule, setMakeRule] = useState(true);
   const [dragRule, setDragRule] = useState<number | null>(null);
   const [dropFolder, setDropFolder] = useState<number | null>(null);
+  const [duplicates, setDuplicates] = useState<
+    { keep: string; merge: string[]; reason: string }[]
+  >([]);
+  const [dupDismissed, setDupDismissed] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
   const { toast } = useToast();
 
   const load = useCallback(async () => {
@@ -84,6 +90,77 @@ export default function ProposalsPane({ active }: { active: boolean }) {
   }, [load]);
 
   useRevalidate(active, load);
+
+  // One-shot near-duplicate scan (cheap LLM) so the user can spot folders an
+  // earlier double-onboarding duplicated. Read-only suggestion.
+  useEffect(() => {
+    fetch("/api/mail-analyzer/proposals/duplicates")
+      .then((r) => r.json())
+      .then((d) => setDuplicates(d.clusters ?? []))
+      .catch(() => {});
+  }, []);
+
+  // Surface that the scan→classify→propose pipeline is still working so the
+  // tab isn't a silent "Nothing waiting" while proposals generate in Inngest.
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const GENERATING = new Set(["scanning", "classifying", "persona_ready", "proposing"]);
+    const check = async () => {
+      try {
+        const s = await fetch("/api/mail-analyzer/onboarding/pipeline").then((r) => r.json());
+        if (cancelled) return;
+        const isGen = GENERATING.has(s?.phase);
+        setGenerating(isGen);
+        if (!isGen && timer) {
+          clearInterval(timer);
+          timer = null;
+          load();
+        }
+      } catch {
+        /* transient — leave banner as-is */
+      }
+    };
+    check();
+    timer = setInterval(check, 5000);
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [load]);
+
+  const runBulk = async (action: "accept" | "apply", folderId?: number) => {
+    if (bulkBusy) return;
+    const label =
+      action === "accept"
+        ? "Accept these proposals? Future mail auto-routes; existing mail stays put."
+        : "Apply now? This moves all existing matching messages into their folders.";
+    if (!confirm(label)) return;
+    setBulkBusy(true);
+    try {
+      const res = await fetch("/api/mail-analyzer/proposals/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, folderId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast(data.error ?? "Bulk action failed", "error");
+      } else if (action === "accept") {
+        toast(`Accepted ${data.accepted} rule(s). Future mail will auto-route.`, "success");
+      } else {
+        toast(
+          `Moved ${data.moved} message(s)${data.failed ? `, ${data.failed} failed` : ""} across ${data.appliedRules} rule(s).`,
+          data.failed > 0 ? "error" : "success",
+        );
+      }
+      await load();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Bulk action failed", "error");
+    } finally {
+      setBulkBusy(false);
+    }
+  };
 
   const patchFolder = async (id: number, body: object) => {
     await fetch(`/api/mail-analyzer/proposals/folder/${id}`, {
@@ -175,14 +252,74 @@ export default function ProposalsPane({ active }: { active: boolean }) {
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 px-8 py-10">
-      <div>
-        <h1 className="mb-1 text-2xl font-semibold tracking-tight">Folder proposals</h1>
-        <p className="text-sm text-muted">
-          {pendingRules > 0
-            ? `${pendingRules} rule${pendingRules === 1 ? "" : "s"} waiting. Apply inline, or drag a sender into a different folder.`
-            : "Nothing waiting. Proposals appear after a scan."}
-        </p>
+      <div className="flex flex-col gap-3">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="mb-1 text-2xl font-semibold tracking-tight">Folder proposals</h1>
+            <p className="text-sm text-muted">
+              {pendingRules > 0
+                ? `${pendingRules} rule${pendingRules === 1 ? "" : "s"} waiting. Accept routes future mail automatically; Apply also moves existing mail. Or drag a sender into another folder.`
+                : "Nothing waiting. Proposals appear after a scan."}
+            </p>
+          </div>
+          {pendingRules > 0 && (
+            <div className="flex shrink-0 gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={bulkBusy}
+                onClick={() => runBulk("accept")}
+              >
+                Accept all
+              </Button>
+              <Button
+                size="sm"
+                disabled={bulkBusy}
+                onClick={() => runBulk("apply")}
+              >
+                {bulkBusy ? "Working…" : "Apply all now"}
+              </Button>
+            </div>
+          )}
+        </div>
+        {generating && (
+          <div className="rounded-xl border border-border bg-[var(--brand-soft)] px-4 py-3 text-sm text-[var(--brand)]">
+            Generating folder proposals… this runs in the background and the list
+            will fill in automatically.
+          </div>
+        )}
       </div>
+
+      {duplicates.length > 0 && !dupDismissed && (
+        <div className="rounded-xl border border-warning bg-warning-soft p-4 text-sm">
+          <div className="mb-2 flex items-start justify-between gap-4">
+            <p className="font-medium">
+              Possible duplicate folders ({duplicates.length})
+            </p>
+            <button
+              onClick={() => setDupDismissed(true)}
+              className="shrink-0 text-xs text-muted hover:text-foreground"
+            >
+              Dismiss
+            </button>
+          </div>
+          <p className="mb-3 text-xs text-muted">
+            An earlier rebuild may have created overlapping folders. Nothing is
+            moved automatically — consolidate by dragging rules onto the folder
+            you want to keep, or ask the assistant to merge them.
+          </p>
+          <ul className="flex flex-col gap-2">
+            {duplicates.map((c, i) => (
+              <li key={i} className="text-sm">
+                <span className="font-mono">{c.merge.join(", ")}</span>
+                <span className="text-muted"> → keep </span>
+                <span className="font-mono font-semibold">{c.keep}</span>
+                <span className="block text-xs text-muted">{c.reason}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {proposals.length === 0 ? (
         <div className="rounded-xl border border-border bg-warning-soft p-4 text-sm">
@@ -213,8 +350,8 @@ export default function ProposalsPane({ active }: { active: boolean }) {
                   <h2 className="text-base font-semibold">{p.folder.path}</h2>
                   <Badge status={p.folder.status} />
                 </div>
-                {p.folder.status === "proposed" && (
-                  <div className="flex shrink-0 gap-2">
+                <div className="flex shrink-0 gap-2">
+                  {p.folder.status === "proposed" && (
                     <Button
                       variant="ghost"
                       size="sm"
@@ -222,14 +359,27 @@ export default function ProposalsPane({ active }: { active: boolean }) {
                     >
                       Reject
                     </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => patchFolder(p.folder.id, { status: "accepted" })}
-                    >
-                      Accept folder
-                    </Button>
-                  </div>
-                )}
+                  )}
+                  {p.rules.some((r) => r.status === "proposed") && (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={bulkBusy}
+                        onClick={() => runBulk("accept", p.folder.id)}
+                      >
+                        Accept all
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={bulkBusy}
+                        onClick={() => runBulk("apply", p.folder.id)}
+                      >
+                        Apply all
+                      </Button>
+                    </>
+                  )}
+                </div>
               </div>
               {p.folder.rationale && (
                 <p className="mb-3 text-sm text-muted">{p.folder.rationale}</p>

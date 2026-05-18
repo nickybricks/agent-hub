@@ -24,14 +24,20 @@ export async function POST() {
     "@/lib/analyzer-db-pg"
   );
   const prev = (await listMemoriesPg(userId, { kind: "user_profile" }))[0];
-  if (prev) {
+  // Also retire any durable onboarding persona draft so the rebuild
+  // re-synthesises from scratch rather than re-showing the stale draft.
+  const draft = (
+    await listMemoriesPg(userId, { kind: "system", key: "onboarding_persona_draft", limit: 1 })
+  )[0];
+  if (prev || draft) {
     const noteId = await writeMemoryPg(userId, {
       kind: "user_pref",
       key: "profile_rebuild_requested",
       content: `User requested a profile rebuild on ${new Date().toISOString().slice(0, 10)}.`,
       source: "user_decision",
     });
-    await supersedeMemoryPg(userId, prev.id, noteId);
+    if (prev) await supersedeMemoryPg(userId, prev.id, noteId);
+    if (draft) await supersedeMemoryPg(userId, draft.id, noteId);
   }
   return NextResponse.json({ ok: true });
 }

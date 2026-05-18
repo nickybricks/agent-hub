@@ -16,6 +16,18 @@ interface ProfileData {
   persona: Memory | null;
   prefs: Memory[];
   memories: Memory[];
+  activity: Memory[];
+}
+
+/** "onboarding:cleanup_aggressiveness" → "Cleanup aggressiveness" */
+function humanizeKey(key: string | null): string {
+  if (!key) return "";
+  return key
+    .replace(/^onboarding:/, "")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/^\s*\w/, (c) => c.toUpperCase())
+    .trim();
 }
 
 export default function ProfilePane({ active }: { active: boolean }) {
@@ -25,6 +37,7 @@ export default function ProfilePane({ active }: { active: boolean }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showMemories, setShowMemories] = useState(false);
+  const [showActivity, setShowActivity] = useState(false);
   const [rebuilding, setRebuilding] = useState(false);
 
   async function rebuild() {
@@ -89,6 +102,7 @@ export default function ProfilePane({ active }: { active: boolean }) {
   const persona = data?.persona ?? null;
   const prefs = data?.prefs ?? [];
   const memories = data?.memories ?? [];
+  const activity = data?.activity ?? [];
   const dirty = draft.trim() !== (persona?.content ?? "").trim();
 
   return (
@@ -155,18 +169,16 @@ export default function ProfilePane({ active }: { active: boolean }) {
         {prefs.length === 0 ? (
           <p className="text-sm text-muted">None yet.</p>
         ) : (
-          <ul className="flex flex-col gap-2">
+          <dl className="flex flex-col divide-y divide-border">
             {prefs.map((p) => (
-              <li key={p.id} className="text-sm">
-                {p.key && (
-                  <span className="mr-2 text-xs font-medium uppercase tracking-wide text-muted">
-                    {p.key}
-                  </span>
-                )}
-                {p.content}
-              </li>
+              <div key={p.id} className="flex flex-col gap-0.5 py-2.5 first:pt-0 last:pb-0">
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted">
+                  {humanizeKey(p.key)}
+                </dt>
+                <dd className="text-sm leading-relaxed">{p.content}</dd>
+              </div>
             ))}
-          </ul>
+          </dl>
         )}
       </section>
 
@@ -191,6 +203,33 @@ export default function ProfilePane({ active }: { active: boolean }) {
                     {m.kind}
                   </span>
                   {m.content}
+                </li>
+              ))}
+            </ul>
+          ))}
+      </section>
+
+      {/* Activity log — proposal/apply audit trail, deep progressive disclosure */}
+      <section className="card flex flex-col gap-3 p-5">
+        <button
+          onClick={() => setShowActivity((v) => !v)}
+          className="flex items-center gap-2 text-left text-sm font-semibold tracking-tight"
+        >
+          <span className="text-muted">{showActivity ? "▾" : "▸"}</span>
+          Activity log{" "}
+          <span className="font-normal text-muted">({activity.length})</span>
+        </button>
+        {showActivity &&
+          (activity.length === 0 ? (
+            <p className="text-sm text-muted">No activity yet.</p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {activity.slice(0, 100).map((m) => (
+                <li key={m.id} className="text-xs text-muted">
+                  <span className="mr-2 font-medium uppercase tracking-wide">
+                    {m.kind.replace(/_/g, " ")}
+                  </span>
+                  <span className="line-clamp-2">{m.content}</span>
                 </li>
               ))}
             </ul>
