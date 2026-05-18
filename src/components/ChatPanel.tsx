@@ -135,6 +135,25 @@ export default function ChatPanel() {
         return;
       }
       if (list[0]) await loadThread(list[0].id);
+
+      // Returning, already-onboarded user: ask the server what changed since
+      // last visit. It only responds with a message when there's news (and has
+      // already appended it server-side); otherwise the chat is left untouched.
+      if (!forceRebuild && onboarded !== false) {
+        try {
+          const g = await fetch("/api/mail-analyzer/greeting", { method: "POST" }).then((r) =>
+            r.json(),
+          );
+          if (g?.message && g?.threadId) {
+            // The greeting is already persisted; reload that thread so the
+            // transcript is exactly what the server has (no state mixing).
+            await loadThread(g.threadId);
+            loadThreads();
+          }
+        } catch {
+          /* a missing greeting is never an error worth surfacing */
+        }
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

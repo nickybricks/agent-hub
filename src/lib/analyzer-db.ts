@@ -880,7 +880,8 @@ export type MemoryKind =
   | "proposal_run"
   | "apply_action"
   | "audit_decision"
-  | "mistake";
+  | "mistake"
+  | "system";
 
 export type MemorySource = "user_decision" | "llm" | "judge" | "self";
 
