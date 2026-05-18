@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getProposalsWithRules, getMessagesMatchingRule } from "@/lib/analyzer-db";
-import { getProposalsWithRulesPg, getMessagesMatchingRulePg } from "@/lib/analyzer-db-pg";
+import { getProposalsWithRulesPg, getRulePendingCountsPg } from "@/lib/analyzer-db-pg";
 import { isMultiTenant } from "@/lib/db";
 import { createClient } from "@/lib/supabase/server";
 
@@ -17,20 +17,26 @@ export async function GET() {
 
   try {
     const proposals = userId ? await getProposalsWithRulesPg(userId) : getProposalsWithRules();
-    // Attach pending-message counts per rule so the UI can show "would move N".
-    const enriched = await Promise.all(
-      proposals.map(async (p) => ({
+    // Attach pending-message counts so the UI can show "would move N".
+    // MT: ONE batched pair of grouped queries for all rules (was a per-rule
+    // N+1 — 182 queries → ~45s). SQLite (local) stays per-rule (in-process).
+    let enriched;
+    if (userId) {
+      const allRules = proposals.flatMap((p) => p.rules);
+      const counts = await getRulePendingCountsPg(userId, allRules);
+      enriched = proposals.map((p) => ({
         folder: p.folder,
-        rules: await Promise.all(
-          p.rules.map(async (r) => ({
-            ...r,
-            pending_count: userId
-              ? (await getMessagesMatchingRulePg(userId, r)).length
-              : getMessagesMatchingRule(r).length,
-          }))
-        ),
-      }))
-    );
+        rules: p.rules.map((r) => ({ ...r, pending_count: counts.get(r.id) ?? 0 })),
+      }));
+    } else {
+      enriched = proposals.map((p) => ({
+        folder: p.folder,
+        rules: p.rules.map((r) => ({
+          ...r,
+          pending_count: getMessagesMatchingRule(r).length,
+        })),
+      }));
+    }
     return NextResponse.json({ proposals: enriched });
   } catch (e) {
     console.error("proposals route error", e);

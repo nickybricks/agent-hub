@@ -1316,6 +1316,63 @@ export async function getMessagesMatchingRulePg(
   }));
 }
 
+/**
+ * Batched pending-count for many rules in TWO grouped queries instead of one
+ * per rule (the proposals list had a 182-query N+1 → 45s). Counts messages
+ * matching each rule's sender_email / sender_domain that aren't already moved.
+ * The per-rule "exclude messages already in the target folder" refinement is
+ * skipped here (a list badge tolerates a tiny overcount; the exact figure is
+ * still computed in the apply/preview path). Returns a map rule.id → count.
+ */
+export async function getRulePendingCountsPg(
+  userId: string,
+  rules: FolderRule[],
+): Promise<Map<number, number>> {
+  const out = new Map<number, number>();
+  if (rules.length === 0) return out;
+  const db = getDrizzleDb();
+
+  const [emailRows, domainRows] = await Promise.all([
+    db.execute(sql`
+      SELECT LOWER(m.sender_email) AS k, COUNT(*)::int AS c
+      FROM messages m
+      WHERE m.user_id = ${userId}
+        AND NOT EXISTS (
+          SELECT 1 FROM move_log ml
+          WHERE ml.message_id = m.id AND ml.status = 'applied' AND ml.user_id = ${userId}
+        )
+      GROUP BY LOWER(m.sender_email)
+    `),
+    db.execute(sql`
+      SELECT LOWER(SUBSTRING(m.sender_email FROM POSITION('@' IN m.sender_email) + 1)) AS k,
+             COUNT(*)::int AS c
+      FROM messages m
+      WHERE m.user_id = ${userId}
+        AND NOT EXISTS (
+          SELECT 1 FROM move_log ml
+          WHERE ml.message_id = m.id AND ml.status = 'applied' AND ml.user_id = ${userId}
+        )
+      GROUP BY 1
+    `),
+  ]);
+
+  const byEmail = new Map<string, number>();
+  for (const r of emailRows as unknown as { k: string; c: number }[])
+    byEmail.set(r.k, Number(r.c));
+  const byDomain = new Map<string, number>();
+  for (const r of domainRows as unknown as { k: string; c: number }[])
+    byDomain.set(r.k, Number(r.c));
+
+  for (const rule of rules) {
+    const m =
+      rule.match_type === "sender_email"
+        ? byEmail.get(rule.match_value.toLowerCase())
+        : byDomain.get(rule.match_value.toLowerCase());
+    out.set(rule.id, m ?? 0);
+  }
+  return out;
+}
+
 // ── ask (/ask route: memories + stats) ───────────────────────────────────────
 
 export async function listMemoriesPg(
