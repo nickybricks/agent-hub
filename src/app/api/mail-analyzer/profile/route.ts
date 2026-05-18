@@ -44,8 +44,16 @@ async function authedUserId() {
 async function getMultiTenant() {
   const userId = await authedUserId();
   if (!userId) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const { listMemoriesPg } = await import("@/lib/analyzer-db-pg");
-  return NextResponse.json(shape(await listMemoriesPg(userId)));
+  try {
+    const { listMemoriesPg } = await import("@/lib/analyzer-db-pg");
+    return NextResponse.json(shape(await listMemoriesPg(userId)));
+  } catch (e) {
+    console.error("profile route error", e);
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : String(e), persona: null, prefs: [], memories: [] },
+      { status: 200 },
+    );
+  }
 }
 
 async function putMultiTenant(content: string) {

@@ -20,6 +20,14 @@ export async function GET() {
   const { data: { user }, error } = await supabase.auth.getUser();
   if (error || !user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const s = await onboardingState(user.id);
-  return NextResponse.json({ onboarded: !s.active, connected: s.connected });
+  try {
+    const s = await onboardingState(user.id);
+    return NextResponse.json({ onboarded: !s.active, connected: s.connected });
+  } catch (e) {
+    console.error("onboarding/status error", e);
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : String(e), onboarded: true, connected: false },
+      { status: 200 },
+    );
+  }
 }

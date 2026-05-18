@@ -7,7 +7,15 @@ let _drizzle: ReturnType<typeof drizzle<typeof schema>> | null = null;
 
 export function getDrizzleDb() {
   if (!_drizzle) {
-    _pg = postgres(process.env.DATABASE_URL!);
+    // `prepare: false` is REQUIRED behind Supabase's transaction pooler
+    // (pgbouncer) — prepared statements break there and every query errors on
+    // Vercel while working locally against the direct connection. Harmless on a
+    // direct connection. Serverless-friendly pool sizing too.
+    _pg = postgres(process.env.DATABASE_URL!, {
+      prepare: false,
+      max: 1,
+      idle_timeout: 20,
+    });
     _drizzle = drizzle(_pg, { schema });
   }
   return _drizzle;
