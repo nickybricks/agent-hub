@@ -43,10 +43,21 @@ export function chatStreamResponse(
         const state = await loadThreadState(userId, threadId);
         send({ type: "done", threadId, ...state, tools_used: toolsUsed });
       } catch (err) {
-        send({
-          type: "error",
-          message: err instanceof Error ? err.message : "chat failed",
-        });
+        // "TypeError: fetch failed" hides the real reason in err.cause — unwrap
+        // the cause chain so the surfaced message is actionable.
+        let message = err instanceof Error ? err.message : "chat failed";
+        let cause: unknown = (err as { cause?: unknown })?.cause;
+        const seen = new Set<unknown>();
+        while (cause && !seen.has(cause)) {
+          seen.add(cause);
+          const c = cause as { message?: string; code?: string; cause?: unknown };
+          if (c.message || c.code) {
+            message += ` — ${c.code ? `[${c.code}] ` : ""}${c.message ?? ""}`.trimEnd();
+          }
+          cause = c.cause;
+        }
+        console.error("[chat-stream] turn failed:", err);
+        send({ type: "error", message });
       } finally {
         controller.close();
       }
