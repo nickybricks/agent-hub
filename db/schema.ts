@@ -42,7 +42,7 @@ export const mailboxes = pgTable(
 export const messages = pgTable(
   "messages",
   {
-    id: text("id").primaryKey(),
+    id: text("id").notNull(),
     mailboxId: integer("mailbox_id").references(() => mailboxes.id),
     senderEmail: text("sender_email").notNull(),
     senderName: text("sender_name"),
@@ -56,6 +56,8 @@ export const messages = pgTable(
     accountId: uuid("account_id"),
   },
   (t) => [
+    // Tenant-scoped PK: a Message-ID is only unique within one user's mailbox.
+    primaryKey({ columns: [t.userId, t.id] }),
     index("idx_messages_sender").on(t.senderEmail),
     index("idx_messages_date").on(t.dateReceived),
     index("idx_messages_mailbox").on(t.mailboxId),

@@ -229,6 +229,19 @@ export async function updateMessageMailboxPg(
 
 // ── scan: messages upsert / watermark / scan_runs ────────────────────────────
 
+/**
+ * Sanitise a string for a Postgres text column: strip NUL (not allowed in PG
+ * text) and replace lone UTF-16 surrogates (which encode to invalid UTF-8 →
+ * SQLSTATE 22021, aborting the whole batch). Null/undefined pass through.
+ */
+function pgText<T extends string | null | undefined>(v: T): T {
+  if (v == null) return v;
+  return (v as string)
+    .replace(/\u0000/g, "")
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, "\uFFFD")
+    .replace(/(^|[^\uD800-\uDBFF])([\uDC00-\uDFFF])/g, "$1\uFFFD") as T;
+}
+
 export async function upsertMessagesPg(
   userId: string,
   messages: MailMessage[],
@@ -246,7 +259,21 @@ export async function upsertMessagesPg(
     // same conflict key twice, so dedupe within the chunk (last write wins, like
     // the per-row SQLite loop). Messages key on id; senders key on lowered email.
     const byId = new Map<string, MailMessage>();
-    for (const m of slice) byId.set(m.id, m);
+    for (const m of slice) {
+      // Postgres text columns reject NUL and invalid UTF-8 (lone UTF-16
+      // surrogates → SQLSTATE 22021); some IMAP envelopes contain these and
+      // would abort the whole batch. SQLite is byte-tolerant — its path is
+      // intentionally left unchanged.
+      const clean: MailMessage = {
+        ...m,
+        id: pgText(m.id),
+        senderEmail: pgText(m.senderEmail),
+        senderName: pgText(m.senderName),
+        subject: pgText(m.subject),
+        headersJson: pgText(m.headersJson ?? null),
+      };
+      byId.set(clean.id, clean);
+    }
     const dedupedMsgs = [...byId.values()];
 
     const msgRows = sql.join(
@@ -260,7 +287,7 @@ export async function upsertMessagesPg(
       INSERT INTO messages
         (id, mailbox_id, sender_email, sender_name, subject, date_received, is_read, size_bytes, scanned_at, headers_json, user_id)
       VALUES ${msgRows}
-      ON CONFLICT (id) DO UPDATE SET
+      ON CONFLICT (user_id, id) DO UPDATE SET
         is_read = excluded.is_read,
         scanned_at = excluded.scanned_at,
         headers_json = COALESCE(excluded.headers_json, messages.headers_json)
