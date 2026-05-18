@@ -33,7 +33,7 @@ export default function ProfilePane() {
     try {
       const res = await fetch("/api/mail-analyzer/onboarding/reset", { method: "POST" });
       if (!res.ok) throw new Error();
-      window.location.href = "/app";
+      window.location.href = "/app?rebuild=1";
     } catch {
       setError("Couldn’t start a rebuild.");
       setRebuilding(false);

@@ -105,22 +105,36 @@ export default function ChatPanel() {
     }
   }
 
-  // Resume the most recent thread on mount.
+  // Resume the most recent thread on mount — unless onboarding needs to start.
   useEffect(() => {
     (async () => {
-      const list = await loadThreads();
-      if (list[0]) {
-        await loadThread(list[0].id);
-        return;
+      // Profile → "Rebuild profile" sends ?rebuild=1: force a brand-new
+      // onboarding conversation even though older threads exist (otherwise we'd
+      // just resume the old chat and onboarding would never visibly start).
+      const forceRebuild =
+        typeof window !== "undefined" &&
+        new URLSearchParams(window.location.search).get("rebuild") === "1";
+      if (forceRebuild && typeof window !== "undefined") {
+        window.history.replaceState(null, "", "/app");
       }
-      // Brand-new user with no chats yet: if onboarding is incomplete, open the
-      // onboarding conversation automatically.
+
+      const list = await loadThreads();
+      let onboarded: boolean | undefined;
       try {
         const s = await fetch("/api/mail-analyzer/onboarding/status").then((r) => r.json());
-        if (s && s.onboarded === false) sendMessage("Hi — let's set up my mailbox.");
+        onboarded = s?.onboarded;
       } catch {
         /* ignore */
       }
+
+      // Start onboarding fresh when explicitly rebuilding, or for a brand-new
+      // user (no threads) who hasn't onboarded yet.
+      if ((forceRebuild || list.length === 0) && onboarded === false) {
+        newChat();
+        sendMessage("Hi — let's set up my mailbox.");
+        return;
+      }
+      if (list[0]) await loadThread(list[0].id);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
