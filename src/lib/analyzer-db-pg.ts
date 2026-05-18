@@ -293,8 +293,11 @@ export async function upsertMessagesPg(
         headers_json = COALESCE(excluded.headers_json, messages.headers_json)
     `);
 
+    // Use the sanitised clones (dedupedMsgs), not raw `slice` — the senders
+    // INSERT also goes to a strict Postgres text column, so display_name must
+    // be pgText-cleaned too (this was the gap the integration test caught).
     const byEmail = new Map<string, { email: string; domain: string; displayName: string | null }>();
-    for (const m of slice) {
+    for (const m of dedupedMsgs) {
       const email = m.senderEmail.toLowerCase();
       const domain = m.senderEmail.includes("@")
         ? m.senderEmail.split("@")[1].toLowerCase()

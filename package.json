@@ -1,6 +1,6 @@
 {
   "name": "mail-workflow",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -17,6 +17,7 @@
     "mail:spam-rescan": "npx tsx --env-file=.env.local src/agent/spam-rescan.ts",
     "mail:propose-structure": "npx tsx --env-file=.env.local src/agent/propose-structure.ts",
     "test": "node --test --import tsx 'src/**/__tests__/*.test.ts'",
+    "test:db": "RUN_DB_TESTS=1 node --test --import tsx --env-file=.env.local 'src/**/__tests__/*.dbtest.ts'",
     "eval:injection": "npx tsx --env-file=.env.local scripts/eval-injection.ts"
   },
   "dependencies": {

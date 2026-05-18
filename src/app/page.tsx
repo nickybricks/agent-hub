@@ -1,9 +1,15 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { isMultiTenant } from "@/lib/db";
 import { getConfig, getRuns } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
 export default function Dashboard() {
+  // In the SaaS (multi-tenant) deployment the product is the /app shell; the
+  // legacy flat-file dashboard below is local single-user dev only.
+  if (isMultiTenant()) redirect("/app");
+
   const config = getConfig();
   const runs = getRuns(undefined, 5);
 
