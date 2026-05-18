@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { isMultiTenant } from "@/lib/db";
 import { createClient } from "@/lib/supabase/server";
 import type { AgentMemory } from "@/lib/analyzer-db";
+import { describeError } from "@/lib/errcause";
 
 export const dynamic = "force-dynamic";
 
@@ -50,7 +51,7 @@ async function getMultiTenant() {
   } catch (e) {
     console.error("profile route error", e);
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : String(e), persona: null, prefs: [], memories: [] },
+      { error: describeError(e), persona: null, prefs: [], memories: [] },
       { status: 200 },
     );
   }

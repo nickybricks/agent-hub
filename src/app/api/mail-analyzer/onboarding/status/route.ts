@@ -9,6 +9,7 @@ import { NextResponse } from "next/server";
 import { isMultiTenant } from "@/lib/db";
 import { createClient } from "@/lib/supabase/server";
 import { onboardingState } from "@/lib/chat-agent";
+import { describeError } from "@/lib/errcause";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,7 @@ export async function GET() {
   } catch (e) {
     console.error("onboarding/status error", e);
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : String(e), onboarded: true, connected: false },
+      { error: describeError(e), onboarded: true, connected: false },
       { status: 200 },
     );
   }
