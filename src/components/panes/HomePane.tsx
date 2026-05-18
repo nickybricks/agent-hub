@@ -100,8 +100,7 @@ export default function HomePane({ onNavigate }: { onNavigate: (tab: string) => 
 
   useEffect(() => {
     // loadAll only setStates after an awaited fetch, so this is not a
-    // synchronous cascading render — the rule can't see through useCallback.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // synchronous cascading render.
     loadAll();
   }, [loadAll]);
 
@@ -111,7 +110,6 @@ export default function HomePane({ onNavigate }: { onNavigate: (tab: string) => 
     if (!running) {
       if (wasRunningRef.current) {
         wasRunningRef.current = false;
-        // eslint-disable-next-line react-hooks/set-state-in-effect
         loadAll();
       }
       return;
