@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { Button } from "@/components/ui/Button";
+import { useRevalidate } from "@/components/DataSync";
 
 interface Overview {
   totals: {
@@ -51,7 +52,13 @@ function fmtRelative(iso: string | null | undefined, now: number | null) {
   return fmtDate(iso);
 }
 
-export default function HomePane({ onNavigate }: { onNavigate: (tab: string) => void }) {
+export default function HomePane({
+  active,
+  onNavigate,
+}: {
+  active: boolean;
+  onNavigate: (tab: string) => void;
+}) {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [reviewCount, setReviewCount] = useState(0);
   const [proposalCount, setProposalCount] = useState(0);
@@ -103,6 +110,9 @@ export default function HomePane({ onNavigate }: { onNavigate: (tab: string) => 
     // synchronous cascading render.
     loadAll();
   }, [loadAll]);
+
+  // Chat changed something → refresh (deferred while this tab is hidden).
+  useRevalidate(active, loadAll);
 
   // Poll overview every 2s while a scan is running, then reload everything on finish.
   useEffect(() => {

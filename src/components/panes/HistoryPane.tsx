@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { useRevalidate } from "@/components/DataSync";
 
 interface MoveEntry {
   id: number;
@@ -29,7 +30,7 @@ interface Batch {
   pairs: string;
 }
 
-export default function HistoryPane() {
+export default function HistoryPane({ active }: { active: boolean }) {
   const [moves, setMoves] = useState<MoveEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | number | null>(null);
@@ -55,6 +56,8 @@ export default function HistoryPane() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useRevalidate(active, load);
 
   async function undo(args: { batch_id?: string; move_id?: number }) {
     const key = args.batch_id ?? args.move_id ?? null;

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
+import { useRevalidate } from "@/components/DataSync";
 
 interface Rule {
   id: number;
@@ -59,7 +60,7 @@ function Badge({ status }: { status: string }) {
   );
 }
 
-export default function ProposalsPane() {
+export default function ProposalsPane({ active }: { active: boolean }) {
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeRule, setActiveRule] = useState<number | null>(null);
@@ -81,6 +82,8 @@ export default function ProposalsPane() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useRevalidate(active, load);
 
   const patchFolder = async (id: number, body: object) => {
     await fetch(`/api/mail-analyzer/proposals/folder/${id}`, {

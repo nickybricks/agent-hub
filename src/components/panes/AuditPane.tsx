@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { useRevalidate } from "@/components/DataSync";
 
 type Kind =
   | "false_positive_spam"
@@ -80,7 +81,7 @@ function fmtDate(iso: string | null | undefined) {
   return new Date(iso).toLocaleDateString();
 }
 
-export default function AuditPane() {
+export default function AuditPane({ active }: { active: boolean }) {
   const [data, setData] = useState<AuditPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
@@ -96,6 +97,8 @@ export default function AuditPane() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useRevalidate(active, load);
 
   const runAudit = async () => {
     setRunning(true);

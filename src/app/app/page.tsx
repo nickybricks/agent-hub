@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 import ChatPanel from "@/components/ChatPanel";
+import { DataSyncProvider } from "@/components/DataSync";
 import HomePane from "@/components/panes/HomePane";
 import ProposalsPane from "@/components/panes/ProposalsPane";
 import AuditPane from "@/components/panes/AuditPane";
@@ -24,14 +25,15 @@ export default function AppShell() {
   };
 
   const pane: Record<Tab, ReactNode> = {
-    Home: <HomePane onNavigate={(t) => select(t as Tab)} />,
-    Proposals: <ProposalsPane />,
-    Audit: <AuditPane />,
-    Profile: <ProfilePane />,
-    History: <HistoryPane />,
+    Home: <HomePane active={tab === "Home"} onNavigate={(t) => select(t as Tab)} />,
+    Proposals: <ProposalsPane active={tab === "Proposals"} />,
+    Audit: <AuditPane active={tab === "Audit"} />,
+    Profile: <ProfilePane active={tab === "Profile"} />,
+    History: <HistoryPane active={tab === "History"} />,
   };
 
   return (
+    <DataSyncProvider>
     <div className="flex h-screen flex-col md:flex-row">
       {/* Left: dashboard tabs */}
       <section className="flex min-w-0 flex-1 flex-col">
@@ -64,5 +66,6 @@ export default function AppShell() {
         <ChatPanel />
       </aside>
     </div>
+    </DataSyncProvider>
   );
 }

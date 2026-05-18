@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { useDataBump } from "@/components/DataSync";
 
 interface ChatMsg {
   id: number;
@@ -64,6 +65,8 @@ export default function ChatPanel() {
   const [cProvider, setCProvider] = useState<"imap" | "gmail" | "outlook">("imap");
   const [cImap, setCImap] = useState({ host: "", port: "993", user: "", password: "" });
   const [cBusy, setCBusy] = useState(false);
+
+  const bump = useDataBump();
 
   const abortRef = useRef<AbortController | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -205,6 +208,7 @@ export default function ChatPanel() {
         }
         if (s.phase === "done" && threadId != null) {
           await loadThread(threadId);
+          bump();
         }
       } catch {
         /* transient — keep polling */
@@ -247,6 +251,9 @@ export default function ChatPanel() {
         } else if (ev.type === "tool") {
           setChips((c) => {
             if (ev.phase === "done") {
+              // A tool finished — it may have changed mailbox data. Tell the
+              // side panes to refresh without a page reload.
+              bump();
               const i = [...c].reverse().findIndex((x) => x.name === ev.name && x.phase === "running");
               if (i >= 0) {
                 const idx = c.length - 1 - i;
@@ -272,6 +279,7 @@ export default function ChatPanel() {
           setPending(ev.pending ?? null);
           resetLive();
           loadThreads();
+          bump();
         } else if (ev.type === "error") {
           setError(ev.message);
         }
@@ -376,6 +384,7 @@ export default function ChatPanel() {
         throw new Error(d.error ?? `HTTP ${res.status}`);
       }
       setPersona(null);
+      bump();
       // Keep polling: pipeline continues into proposing → done, and the
       // poll's `done` transition reloads the thread.
     } catch (err) {

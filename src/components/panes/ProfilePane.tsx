@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { useRevalidate } from "@/components/DataSync";
 
 interface Memory {
   id: number;
@@ -17,7 +18,7 @@ interface ProfileData {
   memories: Memory[];
 }
 
-export default function ProfilePane() {
+export default function ProfilePane({ active }: { active: boolean }) {
   const [data, setData] = useState<ProfileData | null>(null);
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState("");
@@ -55,6 +56,8 @@ export default function ProfilePane() {
   useEffect(() => {
     load();
   }, []);
+
+  useRevalidate(active, load);
 
   async function savePersona() {
     if (!draft.trim() || saving) return;
