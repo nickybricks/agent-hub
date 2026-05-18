@@ -43,19 +43,32 @@ export function chatStreamResponse(
         const state = await loadThreadState(userId, threadId);
         send({ type: "done", threadId, ...state, tools_used: toolsUsed });
       } catch (err) {
-        // "TypeError: fetch failed" hides the real reason in err.cause — unwrap
-        // the cause chain so the surfaced message is actionable.
-        let message = err instanceof Error ? err.message : "chat failed";
-        let cause: unknown = (err as { cause?: unknown })?.cause;
+        // "TypeError: fetch failed" hides the real reason in err.cause and, for
+        // undici, in an AggregateError's .errors[]. Walk both, and surface the
+        // failing address:port (ECONNREFUSED 127.0.0.1:8288 etc.) — that names
+        // exactly which call is broken.
+        const bits: string[] = [];
         const seen = new Set<unknown>();
-        while (cause && !seen.has(cause)) {
-          seen.add(cause);
-          const c = cause as { message?: string; code?: string; cause?: unknown };
-          if (c.message || c.code) {
-            message += ` — ${c.code ? `[${c.code}] ` : ""}${c.message ?? ""}`.trimEnd();
+        const visit = (e: unknown, depth = 0) => {
+          if (!e || seen.has(e) || depth > 6) return;
+          seen.add(e);
+          const o = e as {
+            message?: string; code?: string; syscall?: string;
+            address?: string; port?: number; cause?: unknown; errors?: unknown[];
+          };
+          const loc = o.address ? ` ${o.address}${o.port ? ":" + o.port : ""}` : "";
+          if (o.code || o.syscall || loc) {
+            bits.push(`${o.code ?? ""}${o.syscall ? " " + o.syscall : ""}${loc}`.trim());
+          } else if (o.message) {
+            bits.push(o.message);
           }
-          cause = c.cause;
-        }
+          if (Array.isArray(o.errors)) o.errors.forEach((x) => visit(x, depth + 1));
+          visit(o.cause, depth + 1);
+        };
+        visit(err);
+        const base = err instanceof Error ? err.message : "chat failed";
+        const detail = [...new Set(bits)].filter(Boolean).join("; ");
+        const message = detail ? `${base} — ${detail}` : base;
         console.error("[chat-stream] turn failed:", err);
         send({ type: "error", message });
       } finally {
