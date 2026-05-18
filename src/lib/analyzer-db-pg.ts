@@ -1158,6 +1158,30 @@ export async function getMailboxTotalsPg(
   return { msgs: Number(r.msgs), senders: Number(r.senders) };
 }
 
+/**
+ * Classification progress for the onboarding pipeline gate. Both counts are
+ * derived from the SAME senders↔messages join with the SAME LOWER()
+ * normalization the classifier uses, so `classified` actually reaches `total`
+ * when classify finishes. (Comparing the raw distinct message-sender count
+ * against the lowercased senders table left a permanent residual gap — case
+ * variants — that wedged onboarding forever.)
+ */
+export async function getSenderClassificationProgressPg(
+  userId: string,
+): Promise<{ total: number; classified: number }> {
+  const db = getDrizzleDb();
+  const rows = await db.execute(sql`
+    SELECT
+      COUNT(DISTINCT s.email) AS total,
+      COUNT(DISTINCT s.email) FILTER (WHERE s.category IS NOT NULL) AS classified
+    FROM senders s
+    JOIN messages m ON LOWER(m.sender_email) = s.email AND m.user_id = ${userId}
+    WHERE s.user_id = ${userId}
+  `);
+  const r = (rows[0] as { total: number; classified: number }) ?? { total: 0, classified: 0 };
+  return { total: Number(r.total), classified: Number(r.classified) };
+}
+
 export async function insertProposedFoldersPg(
   userId: string,
   items: { path: string; rationale?: string | null }[],

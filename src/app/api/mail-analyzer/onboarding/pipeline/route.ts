@@ -23,8 +23,7 @@ export async function GET() {
 
   const {
     getLatestScanRunPg,
-    getMailboxTotalsPg,
-    getCategoryDistributionPg,
+    getSenderClassificationProgressPg,
     getProposalsWithRulesPg,
     listMemoriesPg,
   } = await import("@/lib/analyzer-db-pg");
@@ -39,14 +38,11 @@ export async function GET() {
     return NextResponse.json({ phase: "error", scanned, error: run.error ?? "scan failed" });
   }
 
-  // Scan finished: gauge classification progress (distinct classified senders
-  // vs distinct senders seen in messages).
-  const [totals, dist] = await Promise.all([
-    getMailboxTotalsPg(userId),
-    getCategoryDistributionPg(userId),
-  ]);
-  const totalSenders = Number(totals.senders) || 0;
-  const classified = dist.reduce((s, c) => s + Number(c.senders), 0);
+  // Scan finished: gauge classification progress. Both counts come from the
+  // same senders↔messages join with the same LOWER() the classifier uses, so
+  // `classified` actually reaches `totalSenders` when classify completes.
+  const { total: totalSenders, classified } =
+    await getSenderClassificationProgressPg(userId);
 
   if (totalSenders === 0 || classified < totalSenders) {
     return NextResponse.json({
