@@ -67,22 +67,35 @@ export default function HomePane({ onNavigate }: { onNavigate: (tab: string) => 
   }, []);
 
   const loadAll = useCallback(async () => {
-    const [ov, rv, pr, hist] = await Promise.all([
-      fetch("/api/mail-analyzer/overview").then((r) => r.json()),
-      fetch("/api/mail-analyzer/review").then((r) => r.json()),
-      fetch("/api/mail-analyzer/proposals").then((r) => r.json()),
-      fetch("/api/mail-analyzer/history?limit=6").then((r) => r.json()),
-    ]);
-    setOverview(ov);
-    setReviewCount((rv.items ?? []).length);
-    const pending = (pr.proposals ?? []).reduce(
-      (sum: number, p: { rules: { status: string }[] }) =>
-        sum + p.rules.filter((r) => r.status === "proposed").length,
-      0,
-    );
-    setProposalCount(pending);
-    setMoves((hist.moves ?? []).filter((m: Move) => m.status === "applied").slice(0, 6));
-    setLoading(false);
+    // One failing/500 endpoint must never blackhole the whole Home view:
+    // fetch each independently, tolerate non-JSON/errors, always clear loading.
+    const get = async (url: string): Promise<Record<string, unknown>> => {
+      try {
+        const r = await fetch(url);
+        return (await r.json()) as Record<string, unknown>;
+      } catch {
+        return {};
+      }
+    };
+    try {
+      const [ov, rv, pr, hist] = await Promise.all([
+        get("/api/mail-analyzer/overview"),
+        get("/api/mail-analyzer/review"),
+        get("/api/mail-analyzer/proposals"),
+        get("/api/mail-analyzer/history?limit=6"),
+      ]);
+      setOverview(ov as unknown as Overview);
+      setReviewCount(((rv.items as unknown[]) ?? []).length);
+      const pending = (
+        (pr.proposals as { rules: { status: string }[] }[]) ?? []
+      ).reduce((sum, p) => sum + p.rules.filter((r) => r.status === "proposed").length, 0);
+      setProposalCount(pending);
+      setMoves(
+        (((hist.moves as Move[]) ?? []).filter((m) => m.status === "applied")).slice(0, 6),
+      );
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {

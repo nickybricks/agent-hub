@@ -1,6 +1,6 @@
 {
   "name": "mail-workflow",
-  "version": "0.26.7",
+  "version": "0.26.8",
   "private": true,
   "scripts": {
     "dev": "next dev",

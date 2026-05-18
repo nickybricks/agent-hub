@@ -15,20 +15,25 @@ export async function GET() {
     userId = user.id;
   }
 
-  const proposals = userId ? await getProposalsWithRulesPg(userId) : getProposalsWithRules();
-  // Attach pending-message counts per rule so the UI can show "would move N".
-  const enriched = await Promise.all(
-    proposals.map(async (p) => ({
-      folder: p.folder,
-      rules: await Promise.all(
-        p.rules.map(async (r) => ({
-          ...r,
-          pending_count: userId
-            ? (await getMessagesMatchingRulePg(userId, r)).length
-            : getMessagesMatchingRule(r).length,
-        }))
-      ),
-    }))
-  );
-  return NextResponse.json({ proposals: enriched });
+  try {
+    const proposals = userId ? await getProposalsWithRulesPg(userId) : getProposalsWithRules();
+    // Attach pending-message counts per rule so the UI can show "would move N".
+    const enriched = await Promise.all(
+      proposals.map(async (p) => ({
+        folder: p.folder,
+        rules: await Promise.all(
+          p.rules.map(async (r) => ({
+            ...r,
+            pending_count: userId
+              ? (await getMessagesMatchingRulePg(userId, r)).length
+              : getMessagesMatchingRule(r).length,
+          }))
+        ),
+      }))
+    );
+    return NextResponse.json({ proposals: enriched });
+  } catch (e) {
+    console.error("proposals route error", e);
+    return NextResponse.json({ proposals: [] });
+  }
 }
