@@ -633,9 +633,14 @@ export async function getUnclassifiedSendersPg(
   const db = getDrizzleDb();
   const selfEmail = (process.env.IMAP_USER || "").toLowerCase();
   const limitClause = limit ? sql`LIMIT ${Number(limit)}` : sql``;
-  const rows = await db.execute(sql`
-    SELECT s.email, s.domain, s.display_name,
-           COUNT(m.id) AS message_count
+  // Two bounded queries, never a per-sender N+1. The old loop did one network
+  // round-trip per sender (thousands), each a non-sargable LOWER(sender_email)
+  // seq scan — fine in-process on SQLite, minutes/hours over the network at
+  // multi-tenant scale (and a single correlated LATERAL blew statement_timeout).
+  // (1) the aggregate (idx_messages_lower_sender, migration 0006 — sub-second),
+  // (2) one windowed query for the top-3 recent subjects of just the candidates.
+  const agg = (await db.execute(sql`
+    SELECT s.email, s.domain, s.display_name, COUNT(m.id) AS message_count
     FROM senders s
     JOIN messages m ON LOWER(m.sender_email) = s.email AND m.user_id = ${userId}
     WHERE (s.category IS NULL OR s.classification_model != ${model})
@@ -645,30 +650,36 @@ export async function getUnclassifiedSendersPg(
     HAVING COUNT(m.id) >= ${minMessages}
     ORDER BY message_count DESC
     ${limitClause}
-  `);
-  const senders = rows as unknown as Array<{
+  `)) as unknown as Array<{
     email: string;
     domain: string;
     display_name: string | null;
     message_count: number;
   }>;
+  if (agg.length === 0) return [];
 
-  const result: UnclassifiedSender[] = [];
-  for (const r of senders) {
-    const subjRows = await db.execute(sql`
-      SELECT subject FROM messages
-      WHERE LOWER(sender_email) = ${r.email} AND user_id = ${userId}
-        AND subject IS NOT NULL AND subject != ''
-      ORDER BY date_received DESC
-      LIMIT 3
-    `);
-    result.push({
-      ...r,
-      message_count: Number(r.message_count),
-      sample_subjects: (subjRows as unknown as { subject: string }[]).map((s) => s.subject),
-    });
+  const subjRows = (await db.execute(sql`
+    SELECT se, subject FROM (
+      SELECT LOWER(sender_email) AS se, subject,
+             row_number() OVER (PARTITION BY LOWER(sender_email) ORDER BY date_received DESC) AS rn
+      FROM messages
+      WHERE user_id = ${userId} AND subject IS NOT NULL AND subject != ''
+    ) x WHERE rn <= 3
+  `)) as unknown as Array<{ se: string; subject: string }>;
+
+  const subjects = new Map<string, string[]>();
+  for (const r of subjRows) {
+    const arr = subjects.get(r.se) ?? [];
+    arr.push(r.subject);
+    subjects.set(r.se, arr);
   }
-  return result;
+  return agg.map((r) => ({
+    email: r.email,
+    domain: r.domain,
+    display_name: r.display_name,
+    message_count: Number(r.message_count),
+    sample_subjects: subjects.get(r.email) ?? [],
+  }));
 }
 
 export async function setSenderCategoryPg(
@@ -1029,10 +1040,11 @@ export async function getSendersForProposalPg(
 ): Promise<SenderForProposal[]> {
   const db = getDrizzleDb();
   const selfEmail = (process.env.IMAP_USER || "").toLowerCase();
-  const rows = await db.execute(sql`
+  // Two bounded queries, no per-sender N+1 / no correlated LATERAL (see
+  // getUnclassifiedSendersPg for the why).
+  const agg = (await db.execute(sql`
     SELECT s.email, s.domain, s.display_name, s.category,
-           COUNT(m.id) AS message_count,
-           SUM(CASE WHEN LOWER(mb.name) LIKE '%spam%' OR LOWER(mb.name) LIKE '%junk%' THEN 1 ELSE 0 END) AS spam_count
+           COUNT(m.id) AS message_count
     FROM senders s
     JOIN messages m ON LOWER(m.sender_email) = s.email AND m.user_id = ${userId}
     JOIN mailboxes mb ON m.mailbox_id = mb.id
@@ -1042,33 +1054,38 @@ export async function getSendersForProposalPg(
        AND (SUM(CASE WHEN LOWER(mb.name) LIKE '%spam%' OR LOWER(mb.name) LIKE '%junk%' THEN 1 ELSE 0 END) * 1.0 / COUNT(m.id)) < 0.5
     ORDER BY message_count DESC
     LIMIT ${limit}
-  `);
-  const senders = rows as unknown as Array<{
+  `)) as unknown as Array<{
     email: string;
     domain: string;
     display_name: string | null;
     category: string | null;
     message_count: number;
   }>;
-  const result: SenderForProposal[] = [];
-  for (const r of senders) {
-    const subj = await db.execute(sql`
-      SELECT subject FROM messages
-      WHERE LOWER(sender_email) = ${r.email} AND user_id = ${userId}
-        AND subject IS NOT NULL AND subject != ''
-      ORDER BY date_received DESC
-      LIMIT 2
-    `);
-    result.push({
-      email: r.email,
-      domain: r.domain,
-      display_name: r.display_name,
-      category: r.category,
-      message_count: Number(r.message_count),
-      sample_subjects: (subj as unknown as { subject: string }[]).map((s) => s.subject),
-    });
+  if (agg.length === 0) return [];
+
+  const subjRows = (await db.execute(sql`
+    SELECT se, subject FROM (
+      SELECT LOWER(sender_email) AS se, subject,
+             row_number() OVER (PARTITION BY LOWER(sender_email) ORDER BY date_received DESC) AS rn
+      FROM messages
+      WHERE user_id = ${userId} AND subject IS NOT NULL AND subject != ''
+    ) x WHERE rn <= 2
+  `)) as unknown as Array<{ se: string; subject: string }>;
+
+  const subjects = new Map<string, string[]>();
+  for (const r of subjRows) {
+    const arr = subjects.get(r.se) ?? [];
+    arr.push(r.subject);
+    subjects.set(r.se, arr);
   }
-  return result;
+  return agg.map((r) => ({
+    email: r.email,
+    domain: r.domain,
+    display_name: r.display_name,
+    category: r.category,
+    message_count: Number(r.message_count),
+    sample_subjects: subjects.get(r.email) ?? [],
+  }));
 }
 
 export async function getProposalFolderRowsPg(
