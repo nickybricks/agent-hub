@@ -1,4 +1,5 @@
 {
+  "regions": ["cdg1"],
   "crons": [
     { "path": "/api/cron/scan", "schedule": "0 2 * * *" },
     { "path": "/api/cron/triage", "schedule": "30 2 * * *" },
