@@ -136,6 +136,31 @@ export default function ChatPanel() {
       }
       if (list[0]) await loadThread(list[0].id);
 
+      // Mid-pipeline reload: the scan→classify chain runs server-side in
+      // Inngest, but loadThread just cleared any pipeline state. If onboarding
+      // is still active and this thread already kicked off run_pipeline,
+      // re-seed the pipeline so the live loading card + poll resume — otherwise
+      // the user sees a dead transcript and starts chatting at the agent.
+      if (onboarded === false && list[0]) {
+        try {
+          const td = await fetch(`/api/mail-analyzer/chat?threadId=${list[0].id}`).then((r) =>
+            r.json(),
+          );
+          const started = (td.messages ?? []).some(
+            (m: ChatMsg) => m.role === "tool" && m.tool_name === "run_pipeline",
+          );
+          if (started) {
+            const s = await fetch("/api/mail-analyzer/onboarding/pipeline").then((r) => r.json());
+            if (s?.phase && s.phase !== "done") {
+              personaFetched.current = false;
+              setPipeline(s);
+            }
+          }
+        } catch {
+          /* ignore — worst case the user re-triggers the pipeline via chat */
+        }
+      }
+
       // Returning, already-onboarded user: ask the server what changed since
       // last visit. It only responds with a message when there's news (and has
       // already appended it server-side); otherwise the chat is left untouched.
