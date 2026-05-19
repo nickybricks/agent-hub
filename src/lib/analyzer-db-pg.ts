@@ -1170,6 +1170,12 @@ export async function getSenderClassificationProgressPg(
   userId: string,
 ): Promise<{ total: number; classified: number }> {
   const db = getDrizzleDb();
+  // Must apply the SAME exclusion the classifier uses
+  // (getUnclassifiedSendersPg: `s.email != selfEmail`). The classifier never
+  // categorises the user's own address, so its `category` stays NULL forever;
+  // if it were counted in `total` here, `classified` could never reach
+  // `total` and onboarding would hang on the last sender.
+  const selfEmail = (process.env.IMAP_USER || "").toLowerCase();
   const rows = await db.execute(sql`
     SELECT
       COUNT(DISTINCT s.email) AS total,
@@ -1177,6 +1183,7 @@ export async function getSenderClassificationProgressPg(
     FROM senders s
     JOIN messages m ON LOWER(m.sender_email) = s.email AND m.user_id = ${userId}
     WHERE s.user_id = ${userId}
+      AND s.email != ${selfEmail}
   `);
   const r = (rows[0] as { total: number; classified: number }) ?? { total: 0, classified: 0 };
   return { total: Number(r.total), classified: Number(r.classified) };

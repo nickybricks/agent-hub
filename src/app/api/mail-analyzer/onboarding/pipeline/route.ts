@@ -38,9 +38,11 @@ export async function GET() {
     return NextResponse.json({ phase: "error", scanned, error: run.error ?? "scan failed" });
   }
 
-  // Scan finished: gauge classification progress. Both counts come from the
-  // same senders↔messages join with the same LOWER() the classifier uses, so
-  // `classified` actually reaches `totalSenders` when classify completes.
+  // Scan finished: gauge classification progress. Both counts use the same
+  // senders↔messages join, same LOWER(), AND the same `!= selfEmail` exclusion
+  // the classifier applies — without that exclusion the user's own address is
+  // counted in `total` but never classified, so `classified` would stall one
+  // short forever and onboarding would hang on the last sender.
   const { total: totalSenders, classified } =
     await getSenderClassificationProgressPg(userId);
 
