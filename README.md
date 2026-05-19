@@ -2,6 +2,15 @@
 
 **Live demo:** https://mail-intelligence.vercel.app
 
+> **Project status — MVP / prototype, not production-ready.**
+> This is a capstone prototype built to demonstrate an agentic LLM
+> application end-to-end. The **IMAP** mailbox path is the implemented and
+> working route. The **Gmail and Outlook** OAuth providers are scaffolded in
+> the codebase but are **not yet working** end-to-end — connect them via IMAP
+> for now. An internal multi-dimension review identified further
+> security/reliability/performance hardening that is intentionally out of
+> scope for this prototype.
+
 ## What this project is
 
 Mail Intelligence is an AI agent that takes over the tedious work of organizing
@@ -33,9 +42,10 @@ manual chore.
 
 1. **Sign in** — Supabase email auth. Each user's data is isolated at the
    database level with Postgres Row-Level Security (multi-tenant by design).
-2. **Connect a mailbox** — Gmail / Outlook via OAuth 2.0, or generic IMAP.
-   Credentials are never stored in the repo; OAuth refresh tokens live in
-   environment variables, not in code or version control.
+2. **Connect a mailbox** — via **IMAP** (the working path in this MVP).
+   Gmail / Outlook OAuth 2.0 is scaffolded but not yet functional end-to-end.
+   Credentials are never stored in the repo; secrets and OAuth refresh tokens
+   live in environment variables, not in code or version control.
 3. **Scan** — the mailbox is read **read-only** and indexed (senders,
    volume, categories) into Postgres.
 4. **Onboarding chat** — a short guided conversation builds a "persona" of how
@@ -60,6 +70,21 @@ manual chore.
 | Data | Supabase Postgres with Row-Level Security; SQLite for local dev |
 | Deployment | Vercel (production), Vercel Cron + Inngest for scheduled work |
 | Testing / evals | Unit tests (`node --test`) and a dedicated **prompt-injection eval suite** (`evals/prompt-injection`) |
+
+### Why these choices
+
+- **Why TypeScript?** An agent that can modify a user's mailbox cannot afford
+  ambiguous data. TypeScript's static types make the tool-calling contracts
+  (tool inputs/outputs), the LLM provider abstraction, and the shared domain
+  types explicit and compiler-checked — catching whole classes of bugs (wrong
+  field, missing case, undefined value) *before* they ever touch real email.
+  It also lets one language span the UI, API routes, and agent scripts, and is
+  the native language of the Next.js / LangChain ecosystem used here.
+- **Why Next.js (not Streamlit)?** This is a deployed, multi-user product that
+  needs real authentication, a database, and scheduled background jobs —
+  beyond what a single-session Streamlit app supports.
+- **Why LangChain?** One code path, four swappable LLM providers — no lock-in
+  to a single vendor.
 
 ## Ethical & privacy considerations
 
