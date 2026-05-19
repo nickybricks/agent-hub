@@ -1,6 +1,6 @@
 {
   "name": "mail-workflow",
-  "version": "0.33.1",
+  "version": "0.34.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -49,6 +49,7 @@
     "react-dom": "19.2.4",
     "react-markdown": "^10.1.0",
     "recharts": "^3.8.1",
+    "remark-gfm": "^4.0.1",
     "tsx": "^4.21.0"
   },
   "devDependencies": {

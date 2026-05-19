@@ -129,6 +129,46 @@ export function getPendingToolCall(threadId: number): ToolCallRow | null {
   );
 }
 
+// Pending ask_user (question + options) — survives reload. Status 'asking'
+// keeps it out of the confirm-card 'pending' query above.
+export function savePendingAsk(
+  threadId: number,
+  question: string,
+  options: string[],
+): void {
+  getDb()
+    .prepare(
+      `INSERT INTO tool_calls (thread_id, tool_name, tool_input, status, created_at)
+       VALUES (?, 'ask_user', ?, 'asking', ?)`,
+    )
+    .run(threadId, JSON.stringify({ question, options }), new Date().toISOString());
+}
+
+export function getPendingAsk(
+  threadId: number,
+): { question: string; options: string[] } | null {
+  const r = getDb()
+    .prepare(
+      `SELECT tool_input FROM tool_calls WHERE thread_id = ? AND status = 'asking' ORDER BY id DESC LIMIT 1`,
+    )
+    .get(threadId) as { tool_input: string } | undefined;
+  if (!r) return null;
+  try {
+    const p = JSON.parse(r.tool_input) as { question: string; options: string[] };
+    return { question: p.question, options: p.options ?? [] };
+  } catch {
+    return null;
+  }
+}
+
+export function clearPendingAsks(threadId: number): void {
+  getDb()
+    .prepare(
+      `UPDATE tool_calls SET status = 'cancelled', decided_at = ? WHERE thread_id = ? AND status = 'asking'`,
+    )
+    .run(new Date().toISOString(), threadId);
+}
+
 export function finishToolCall(
   id: number,
   status: Exclude<ToolCallStatus, "pending">,

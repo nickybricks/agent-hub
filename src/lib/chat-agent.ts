@@ -103,6 +103,27 @@ export function finishToolCall(
     ? pg.finishToolCallPg(userId, id, status, result)
     : Promise.resolve(sq.finishToolCall(id, status, result));
 }
+function savePendingAsk(
+  userId: string | null,
+  threadId: number,
+  question: string,
+  options: string[],
+) {
+  return userId
+    ? pg.savePendingAskPg(userId, threadId, question, options)
+    : Promise.resolve(sq.savePendingAsk(threadId, question, options));
+}
+function clearPendingAsks(userId: string | null, threadId: number) {
+  return userId
+    ? pg.clearPendingAsksPg(userId, threadId)
+    : Promise.resolve(sq.clearPendingAsks(threadId));
+}
+export function getPendingAsk(userId: string | null, threadId: number) {
+  return userId
+    ? pg.getPendingAskPg(userId, threadId)
+    : Promise.resolve(sq.getPendingAsk(threadId));
+}
+
 export async function loadThreadState(userId: string | null, threadId: number) {
   const messages = await listMessages(userId, threadId);
   const pendingRow = userId
@@ -439,6 +460,9 @@ export async function* streamLoop(
   threadId: number,
   signal?: AbortSignal,
 ): AsyncGenerator<ChatEvent> {
+  // A new turn means any previously-pending ask is now being answered
+  // (button click or a typed free answer) — retire it.
+  await clearPendingAsks(userId, threadId);
   const history = await listMessages(userId, threadId);
   const config = await resolveChatLLMConfig(history);
   const model = buildModel(config);
@@ -508,6 +532,7 @@ export async function* streamLoop(
       const reasoning = text.trim();
       const content = reasoning && reasoning !== question ? `${reasoning}\n\n${question}` : question;
       await appendMessage(userId, { thread_id: threadId, role: "assistant", content });
+      await savePendingAsk(userId, threadId, question, options);
       await touchThread(userId, threadId);
       yield { type: "ask", question, options };
       return;

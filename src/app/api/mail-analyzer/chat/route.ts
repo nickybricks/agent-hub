@@ -29,6 +29,8 @@ const appendMessage = (u: string | null, m: Parameters<typeof sq.appendMessage>[
   u ? pg.appendMessagePg(u, m) : Promise.resolve(sq.appendMessage(m));
 const getPendingToolCall = (u: string | null, threadId: number) =>
   u ? pg.getPendingToolCallPg(u, threadId) : Promise.resolve(sq.getPendingToolCall(threadId));
+const getPendingAsk = (u: string | null, threadId: number) =>
+  u ? pg.getPendingAskPg(u, threadId) : Promise.resolve(sq.getPendingAsk(threadId));
 
 // List threads, or (with ?threadId=) one thread's transcript + any pending tool call.
 export async function GET(req: Request) {
@@ -56,7 +58,11 @@ export async function GET(req: Request) {
       }
     : null;
 
-  return NextResponse.json({ thread, messages, pending });
+  // Resurface a still-open ask_user so the option buttons survive a reload
+  // (and a returning-user greeting that reloads the thread).
+  const asking = await getPendingAsk(userId, threadId);
+
+  return NextResponse.json({ thread, messages, pending, asking });
 }
 
 export async function POST(req: Request) {

@@ -118,6 +118,51 @@ export async function getPendingToolCallPg(
   return (rows[0] as unknown as ToolCallRow) ?? null;
 }
 
+// A pending ask_user (question + options) so the option buttons survive a
+// reload / a returning-user greeting. Status 'asking' keeps it out of the
+// confirm-card query above.
+export async function savePendingAskPg(
+  userId: string,
+  threadId: number,
+  question: string,
+  options: string[],
+): Promise<void> {
+  const db = getDrizzleDb();
+  await db.execute(sql`
+    INSERT INTO tool_calls (thread_id, tool_name, tool_input, status, created_at, user_id)
+    VALUES (${threadId}, 'ask_user', ${JSON.stringify({ question, options })},
+            'asking', ${new Date().toISOString()}, ${userId})
+  `);
+}
+
+export async function getPendingAskPg(
+  userId: string,
+  threadId: number,
+): Promise<{ question: string; options: string[] } | null> {
+  const db = getDrizzleDb();
+  const rows = await db.execute(sql`
+    SELECT tool_input FROM tool_calls
+    WHERE thread_id = ${threadId} AND user_id = ${userId} AND status = 'asking'
+    ORDER BY id DESC LIMIT 1
+  `);
+  const r = rows[0] as { tool_input: string } | undefined;
+  if (!r) return null;
+  try {
+    const p = JSON.parse(r.tool_input) as { question: string; options: string[] };
+    return { question: p.question, options: p.options ?? [] };
+  } catch {
+    return null;
+  }
+}
+
+export async function clearPendingAsksPg(userId: string, threadId: number): Promise<void> {
+  const db = getDrizzleDb();
+  await db.execute(sql`
+    UPDATE tool_calls SET status = 'cancelled', decided_at = ${new Date().toISOString()}
+    WHERE thread_id = ${threadId} AND user_id = ${userId} AND status = 'asking'
+  `);
+}
+
 export async function finishToolCallPg(
   userId: string,
   id: number,

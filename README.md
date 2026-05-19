@@ -1,112 +1,114 @@
-# mail-workflow
+# Mail Intelligence (M.I.)
 
-A macOS app that fetches AI/tech newsletters from Apple Mail, summarizes them with an LLM, and serves a daily digest UI.
+**Live demo:** https://mail-intelligence.vercel.app
 
-**Requires macOS** — it talks to Apple Mail via AppleScript.
+## What this project is
+
+Mail Intelligence is an AI agent that takes over the tedious work of organizing
+an email mailbox. A user connects their inbox (Gmail, Outlook, or any IMAP
+account) and the agent scans the whole mailbox, learns how the person actually
+uses email through a short conversational onboarding, and then proposes a clean
+folder structure, routing rules, and a triage of what is important versus noise.
+Every change is conversational: the user talks to the agent in plain language,
+the agent explains what it found and *why*, and nothing that modifies the
+mailbox happens without the user's explicit confirmation. The problem it solves
+is inbox overload — most people have thousands of unsorted emails and no time
+to build and maintain a filing system by hand. Mail Intelligence does that
+analysis and upkeep automatically while keeping the human in control. It works
+by combining a multi-provider LLM (via LangChain) with an agentic
+function-calling loop: read-only tools (count senders, list folders, inspect
+rules) run automatically so the agent can reason about the mailbox, while
+mutating tools (create a rule, move messages, rename a folder) pause the loop
+and require a one-click approval from the user before they execute.
+
+## The problem
+
+A typical mailbox has years of newsletters, receipts, notifications and real
+correspondence mixed together. Manually building filters and folders is slow,
+and they go stale the moment your email habits change. Mail Intelligence treats
+mailbox organization as an ongoing, conversational task instead of a one-time
+manual chore.
 
 ## How it works
 
-1. An agent script reads newsletters from Apple Mail (by sender address or name).
-2. It summarizes them using an LLM of your choice (Anthropic, OpenAI, Google, or Ollama).
-3. The digest is stored locally as JSON and shown in a Next.js UI at `http://localhost:3000`.
-4. Optionally, the digest is emailed to you via Apple Mail.
+1. **Sign in** — Supabase email auth. Each user's data is isolated at the
+   database level with Postgres Row-Level Security (multi-tenant by design).
+2. **Connect a mailbox** — Gmail / Outlook via OAuth 2.0, or generic IMAP.
+   Credentials are never stored in the repo; OAuth refresh tokens live in
+   environment variables, not in code or version control.
+3. **Scan** — the mailbox is read **read-only** and indexed (senders,
+   volume, categories) into Postgres.
+4. **Onboarding chat** — a short guided conversation builds a "persona" of how
+   the user wants their mail organized.
+5. **Agent loop** — a streaming LangChain agent reasons over the mailbox using
+   ~20 function-calling tools. Read tools run automatically; any tool that
+   changes the mailbox is shown to the user as an Apply / Cancel card and only
+   runs on explicit confirmation.
+6. **Automation** — scheduled jobs (scan, triage, classify, spam-rescan) keep
+   the analysis fresh via Vercel Cron + Inngest.
 
-The agent can be triggered manually or run on a schedule via launchd.
+## Tech stack & learning application
 
-## Setup
+| Area | What was used |
+|------|----------------|
+| LLM orchestration | **LangChain** (`@langchain/core`) with a single `createLLM()` factory |
+| LLM providers | Anthropic (default), OpenAI, Google Gemini, Ollama — swappable from config |
+| Agent design | Streaming agentic loop with **function/tool calling**; read vs. mutating tool separation with human-in-the-loop confirmation |
+| Prompt engineering | Structured system prompts, JSON tool specs, prompt-injection guardrails, a rolling conversation-summary memory to bound context |
+| Observability | LangSmith tracing on every turn and tool call |
+| App framework | Next.js 16 (App Router), React 19, TypeScript, Tailwind 4 |
+| Data | Supabase Postgres with Row-Level Security; SQLite for local dev |
+| Deployment | Vercel (production), Vercel Cron + Inngest for scheduled work |
+| Testing / evals | Unit tests (`node --test`) and a dedicated **prompt-injection eval suite** (`evals/prompt-injection`) |
+
+## Ethical & privacy considerations
+
+This project was built with the privacy and safety risks of an
+inbox-reading AI front of mind:
+
+- **Read-by-default, never silently mutate.** The mailbox is only ever read
+  during analysis. Any action that changes the mailbox requires explicit
+  per-action user confirmation in the UI — the agent cannot move or delete mail
+  on its own.
+- **Tenant isolation.** Every table enforces Postgres Row-Level Security keyed
+  to the authenticated user, so one user can never read another's mail data.
+- **No secrets in the repo.** API keys, mail credentials and OAuth refresh
+  tokens are environment variables only; `.env*` and user data files are
+  gitignored.
+- **Prompt-injection defense.** Email content is untrusted input. It is wrapped
+  in data blocks with an explicit guardrail instructing the model to treat it
+  as data, not instructions, and a dedicated eval suite tests these attacks
+  (`npm run eval:injection`).
+- **Data deletion.** Users can delete their account and associated data.
+- **Least-privilege mail access.** OAuth scopes and IMAP usage are read-only
+  for analysis; no broader access than the feature needs.
+
+## Running locally
 
 ```bash
 npm install
+npm run dev          # Next.js dev server → http://localhost:3000
+npm run lint         # ESLint
+npm test             # unit tests
+npm run eval:injection   # prompt-injection eval suite
 ```
 
-### API Keys
+### Required environment variables (`.env.local`, never committed)
 
-Set API keys as environment variables — the agent picks them up automatically. The UI also has a fallback field to store a key in `data/config.json`, but environment variables are preferred.
+| Purpose | Variables |
+|---------|-----------|
+| LLM | `ANTHROPIC_API_KEY` (default) — or `OPENAI_API_KEY` / `GOOGLE_API_KEY`; Ollama needs none |
+| Database / auth | Supabase project URL + keys, `DATABASE_URL` |
+| Mail (one of) | IMAP: `IMAP_HOST/USER/PASSWORD/PORT` · Gmail: `GOOGLE_CLIENT_ID/SECRET` · Outlook: `MS_CLIENT_ID/SECRET/TENANT_ID` |
+| Optional tracing | `LANGCHAIN_TRACING_V2=true`, `LANGCHAIN_API_KEY`, `LANGCHAIN_PROJECT` |
 
-| Provider  | Environment variable  |
-|-----------|-----------------------|
-| Anthropic | `ANTHROPIC_API_KEY`   |
-| OpenAI    | `OPENAI_API_KEY`      |
-| Google    | `GOOGLE_API_KEY`      |
-| Ollama    | *(no key needed)*     |
+## Project structure
 
-Add these to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.):
-
-```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
-export OPENAI_API_KEY="sk-proj-..."
-export GOOGLE_API_KEY="AIza..."
-```
-
-Or create a `.env.local` file in the project root (never committed):
-
-```bash
-ANTHROPIC_API_KEY=sk-ant-...
-OPENAI_API_KEY=sk-proj-...
-GOOGLE_API_KEY=AIza...
-```
-
-### Optional: LangSmith tracing
-
-All LLM calls are instrumented with [LangSmith](https://smith.langchain.com/) via `langsmith/traceable`. To enable tracing, add these variables:
-
-```bash
-LANGCHAIN_TRACING_V2=true
-LANGCHAIN_API_KEY="ls__..."
-LANGCHAIN_PROJECT="mail-workflow"   # optional — groups runs in the LangSmith UI
-```
-
-Without these, the app works normally — tracing is silently skipped.
-
-## Running
-
-```bash
-# Start the UI
-npm run dev
-
-# Run the agent once (fetch → summarize → save)
-npm run agent:run
-
-# Lint
-npm run lint
-```
-
-Open [http://localhost:3000](http://localhost:3000) to see the digest UI and configure the agent.
-
-## Scheduling (launchd)
-
-To run the agent automatically on a schedule, use the included scripts:
-
-```bash
-# Install the launchd job (uses the schedule configured in the UI)
-./scripts/install-schedule.sh
-
-# Remove it
-./scripts/uninstall-schedule.sh
-```
-
-## Configuration
-
-All agent settings are stored in `data/config.json` and editable via the Settings tab in the UI:
-
-- **Senders** — email addresses or sender names to monitor
-- **Lookback window** — how many hours back to fetch emails
-- **Max emails per run** — cap on emails processed in one run
-- **Output language** — language the digest is written in
-- **LLM provider + model** — which AI to use
-- **System prompt** — instructions for the LLM
-- **Schedule** — when to run automatically
-- **Email delivery** — optionally send the digest via Apple Mail
-
-> `data/config.json` contains user settings and should not be committed. Add it to `.gitignore` if you fork this repo.
-
-## Data
-
-All data is stored as flat JSON files — no database required:
-
-| Path | Contents |
-|------|----------|
-| `data/config.json` | Agent configuration |
-| `data/runs.json` | Last 50 agent run records |
-| `data/summaries/YYYY-MM-DD.json` | Daily digest summaries |
-| `data/debug/` | Full debug snapshots (prompt + response) per run |
+- `src/lib/chat-agent.ts` — the streaming agentic loop (the core of the project)
+- `src/lib/chat-tools.ts` — the function-calling tool specs (read vs. mutating)
+- `src/lib/prompt-safety.ts` — prompt-injection guardrails
+- `src/agent/` — standalone analysis jobs (scan, triage, classify, audit)
+- `src/agent/summarize.ts` — `createLLM()` multi-provider LangChain factory
+- `src/app/` — Next.js App Router UI + API routes
+- `db/migrations/` — Postgres schema incl. Row-Level Security policies
+- `evals/prompt-injection/` — adversarial prompt-injection test cases

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
 
 export interface CategoryRow {
@@ -30,55 +31,71 @@ export function CategoryDonut({ data }: { data: CategoryRow[] }) {
     .filter((d) => d.message_count > 0)
     .sort((a, b) => b.message_count - a.message_count);
   const total = rows.reduce((s, d) => s + d.message_count, 0);
+  const [hover, setHover] = useState<number | null>(null);
 
   if (total === 0) {
     return <p className="text-sm text-muted">No classified mail yet.</p>;
   }
 
+  const active = hover != null ? rows[hover] : null;
+
   return (
-    <div className="flex flex-col items-center gap-5">
-      <div className="relative h-44 w-44 shrink-0">
+    <div className="flex flex-col items-center">
+      <div className="relative h-56 w-56">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
               data={rows}
               dataKey="message_count"
               nameKey="category"
-              innerRadius={60}
-              outerRadius={86}
+              innerRadius={70}
+              outerRadius={100}
               paddingAngle={2}
               stroke="none"
               isAnimationActive={false}
+              onMouseLeave={() => setHover(null)}
             >
-              {rows.map((d) => (
-                <Cell key={d.category} fill={colorFor(d.category)} />
+              {rows.map((d, i) => (
+                <Cell
+                  key={d.category}
+                  fill={colorFor(d.category)}
+                  opacity={hover == null || hover === i ? 1 : 0.3}
+                  onMouseEnter={() => setHover(i)}
+                  style={{ transition: "opacity 120ms", cursor: "pointer" }}
+                />
               ))}
             </Pie>
           </PieChart>
         </ResponsiveContainer>
-        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-2xl font-bold tabular-nums">{total.toLocaleString()}</span>
-          <span className="text-[11px] uppercase tracking-wide text-muted">messages</span>
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center px-6 text-center">
+          {active ? (
+            <>
+              <span
+                className="text-sm font-semibold capitalize"
+                style={{ color: colorFor(active.category) }}
+              >
+                {active.category}
+              </span>
+              <span className="text-2xl font-bold tabular-nums">
+                {active.message_count.toLocaleString()}
+              </span>
+              <span className="text-[11px] uppercase tracking-wide text-muted">
+                {Math.round((active.message_count / total) * 100)}% of mail
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="text-2xl font-bold tabular-nums">
+                {total.toLocaleString()}
+              </span>
+              <span className="text-[11px] uppercase tracking-wide text-muted">
+                messages
+              </span>
+            </>
+          )}
         </div>
       </div>
-
-      <ul className="flex w-full flex-col gap-2">
-        {rows.slice(0, 7).map((d) => (
-          <li key={d.category} className="flex items-center gap-2.5 text-sm">
-            <span
-              className="h-2.5 w-2.5 shrink-0 rounded-full"
-              style={{ background: colorFor(d.category) }}
-            />
-            <span className="flex-1 truncate capitalize">{d.category}</span>
-            <span className="shrink-0 tabular-nums text-muted">
-              {d.message_count.toLocaleString()}
-            </span>
-            <span className="w-10 shrink-0 text-right font-medium tabular-nums">
-              {Math.round((d.message_count / total) * 100)}%
-            </span>
-          </li>
-        ))}
-      </ul>
+      <p className="mt-2 text-xs text-muted">Hover a segment for details</p>
     </div>
   );
 }

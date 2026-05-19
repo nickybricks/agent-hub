@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Settings, User } from "lucide-react";
 import ChatPanel from "@/components/ChatPanel";
+import SettingsModal from "@/components/SettingsModal";
 import { DataSyncProvider } from "@/components/DataSync";
 import HomePane from "@/components/panes/HomePane";
 import ProposalsPane from "@/components/panes/ProposalsPane";
@@ -20,6 +21,7 @@ const DEFAULT_CHAT = 480;
 
 export default function AppShell() {
   const [tab, setTab] = useState<Tab>("Home");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // Keep-alive: a tab's pane is mounted the first time it's opened and stays
   // mounted (hidden when inactive) so switching back is instant — no refetch.
   const [mounted, setMounted] = useState<Set<Tab>>(() => new Set<Tab>(["Home"]));
@@ -87,11 +89,11 @@ export default function AppShell() {
             <span className="text-muted">— Mail Intelligence</span>
           </div>
           <div className="flex items-center justify-end gap-1">
-            {/* TODO: wire destinations once decided */}
             <button
               type="button"
               aria-label="Profile"
               title="Profile"
+              onClick={() => setSettingsOpen(true)}
               className="rounded-md p-2 text-muted transition-colors hover:bg-[var(--brand-soft)] hover:text-foreground"
             >
               <User size={18} />
@@ -100,6 +102,7 @@ export default function AppShell() {
               type="button"
               aria-label="Settings"
               title="Settings"
+              onClick={() => setSettingsOpen(true)}
               className="rounded-md p-2 text-muted transition-colors hover:bg-[var(--brand-soft)] hover:text-foreground"
             >
               <Settings size={18} />
@@ -157,6 +160,7 @@ export default function AppShell() {
           </aside>
         </div>
       </div>
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </DataSyncProvider>
   );
 }

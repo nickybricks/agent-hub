@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ArrowUp, Mic, Square } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/Button";
 import { useDataBump } from "@/components/DataSync";
 
@@ -34,6 +36,15 @@ interface ThreadInfo {
 interface Asking {
   question: string;
   options: string[];
+}
+
+// Assistant replies are markdown (headings, tables, lists). Render them.
+function Markdown({ children }: { children: string }) {
+  return (
+    <div className="prose prose-sm max-w-none break-words dark:prose-invert prose-headings:mb-1 prose-headings:mt-3 prose-p:my-2 prose-pre:my-2 prose-table:my-2 prose-table:block prose-table:overflow-x-auto prose-table:text-xs">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
+    </div>
+  );
 }
 
 // One tidy representation of "a tool ran", shared by the live stream and
@@ -104,7 +115,13 @@ export default function ChatPanel() {
         setThreadId(id);
         setMessages(td.messages ?? []);
         setPending(td.pending ?? null);
-        setAsking(null);
+        // A still-open ask_user is resurfaced by the server so the option
+        // buttons survive a reload / returning-user greeting.
+        setAsking(
+          td.asking?.options?.length
+            ? { question: td.asking.question, options: td.asking.options }
+            : null,
+        );
         setConnectCard(false);
         setPersona(null);
         setPipeline(null);
@@ -454,11 +471,8 @@ export default function ChatPanel() {
             );
           }
           return (
-            <div
-              key={m.id}
-              className="max-w-[92%] whitespace-pre-wrap text-sm leading-relaxed"
-            >
-              {m.content}
+            <div key={m.id} className="max-w-[92%] text-sm leading-relaxed">
+              <Markdown>{m.content ?? ""}</Markdown>
             </div>
           );
         })}
@@ -474,8 +488,8 @@ export default function ChatPanel() {
               </div>
             )}
             {liveText && (
-              <div className="max-w-[92%] whitespace-pre-wrap text-sm leading-relaxed">
-                {liveText}
+              <div className="max-w-[92%] text-sm leading-relaxed">
+                <Markdown>{liveText}</Markdown>
               </div>
             )}
           </div>
