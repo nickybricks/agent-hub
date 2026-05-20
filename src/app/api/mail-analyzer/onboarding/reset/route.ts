@@ -6,23 +6,16 @@
  */
 
 import { NextResponse } from "next/server";
-import { isMultiTenant } from "@/lib/db";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/auth";
+import { listMemoriesPg, writeMemoryPg, supersedeMemoryPg } from "@/lib/analyzer-db-pg";
 
 export const dynamic = "force-dynamic";
 
 export async function POST() {
-  if (!isMultiTenant()) {
-    return NextResponse.json({ error: "onboarding is multi-tenant only" }, { status: 400 });
-  }
-  const supabase = await createClient();
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const userId = user.id;
+  const auth = await getAuthUser();
+  if (!auth) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const userId = auth.userId;
 
-  const { listMemoriesPg, writeMemoryPg, supersedeMemoryPg } = await import(
-    "@/lib/analyzer-db-pg"
-  );
   const prev = (await listMemoriesPg(userId, { kind: "user_profile" }))[0];
   // Also retire any durable onboarding persona draft so the rebuild
   // re-synthesises from scratch rather than re-showing the stale draft.

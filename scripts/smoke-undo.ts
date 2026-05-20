@@ -21,7 +21,7 @@ async function main() {
   console.log(`Batch ${batchId}: ${moves.length} move(s), ${applied.length} applied`);
   if (applied.length === 0) { console.log("Nothing to undo."); return; }
 
-  const provider = await createMailProvider();
+  const provider = await createMailProvider(USER_ID!);
   await provider.open();
   const undoneIds: number[] = [];
   try {

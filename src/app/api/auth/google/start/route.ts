@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server";
-import { readMailConfig } from "@/lib/mail-provider";
 import { createPkcePair, attachPkceCookie } from "@/lib/oauth-pkce";
 
 export async function GET(request: Request) {
-  const cfg = readMailConfig();
-  const clientId = process.env.GOOGLE_CLIENT_ID ?? cfg.gmail?.clientId;
+  const clientId = process.env.GOOGLE_CLIENT_ID;
   if (!clientId) {
     return NextResponse.json(
       { error: "Missing GOOGLE_CLIENT_ID. Configure it on the Mail settings page first." },

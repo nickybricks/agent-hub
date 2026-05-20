@@ -1,22 +1,16 @@
 import { NextResponse } from "next/server";
-import { isMultiTenant } from "@/lib/db";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/auth";
 import { runSpamRescan } from "@/agent/spam-rescan";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 export async function POST() {
-  if (isMultiTenant()) {
-    const supabase = await createClient();
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if (error || !user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    // Background-job path: runSpamRescan reads DEV_USER_ID for now. When per-user
-    // auth-driven runs are wired up, replace the env read with `user.id`.
-  }
+  const auth = await getAuthUser();
+  if (!auth) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   try {
-    const result = await runSpamRescan();
+    const result = await runSpamRescan(auth.userId);
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

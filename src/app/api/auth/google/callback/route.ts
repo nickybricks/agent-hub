@@ -1,9 +1,6 @@
 import { NextResponse } from "next/server";
-import { readMailConfig } from "@/lib/mail-provider";
-import { upsertEnvVars } from "@/lib/env-file";
 import { readPkceCookie, clearPkceCookie } from "@/lib/oauth-pkce";
-import { isMultiTenant } from "@/lib/db";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/auth";
 import { saveVaultSecret } from "@/lib/credentials";
 
 export async function GET(request: Request) {
@@ -19,9 +16,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Invalid OAuth state" }, { status: 400 });
   }
 
-  const cfg = readMailConfig();
-  const clientId = process.env.GOOGLE_CLIENT_ID ?? cfg.gmail?.clientId;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET ?? cfg.gmail?.clientSecret;
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
     return NextResponse.json({ error: "Missing Google client credentials" }, { status: 400 });
   }
@@ -50,13 +46,9 @@ export async function GET(request: Request) {
     );
   }
 
-  if (isMultiTenant()) {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) await saveVaultSecret(user.id, "google_refresh_token", tokens.refresh_token);
-  } else {
-    upsertEnvVars({ GOOGLE_REFRESH_TOKEN: tokens.refresh_token });
-  }
+  const auth = await getAuthUser();
+  if (!auth) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  await saveVaultSecret(auth.userId, "google_refresh_token", tokens.refresh_token);
 
   const response = NextResponse.redirect(`${url.origin}/settings/mail?connected=gmail`);
   clearPkceCookie(response);

@@ -1,15 +1,5 @@
 import { spawnSync } from "child_process";
-import { createMailProvider, type MailboxInfo, type MailMessage } from "../lib/mail-provider";
-import { isMultiTenant } from "../lib/db";
-import {
-  upsertMailbox as upsertMailboxSqlite,
-  upsertMessages as upsertMessagesSqlite,
-  getWatermark as getWatermarkSqlite,
-  startScanRun as startScanRunSqlite,
-  finishScanRun as finishScanRunSqlite,
-  failScanRun as failScanRunSqlite,
-  updateScanProgress as updateScanProgressSqlite,
-} from "../lib/analyzer-db";
+import { createMailProvider } from "../lib/mail-provider";
 import {
   upsertMailboxPg,
   upsertMessagesPg,
@@ -19,8 +9,6 @@ import {
   failScanRunPg,
   updateScanProgressPg,
 } from "../lib/analyzer-db-pg";
-
-const MT = isMultiTenant();
 
 // Skip server-side folders that aren't useful for analysis.
 const SKIP_PATTERNS = [/^Drafts$/i, /^Trash$/i, /^Deleted/i, /^Outbox$/i];
@@ -36,44 +24,16 @@ export interface ScanResult {
 }
 
 /**
- * Run a full mailbox scan. In multi-tenant mode `userId` is required and
- * credentials/storage are scoped to that user; in single-user mode pass
- * undefined and SQLite + config.json are used.
+ * Run a full mailbox scan for a given tenant.
  */
 export async function runScan(
-  userId: string | undefined,
+  userId: string,
   opts: { rescanHeaders?: boolean } = {},
 ): Promise<ScanResult> {
-  if (MT && !userId) throw new Error("MULTI_TENANT=true requires a userId");
-
-  // Per-user dispatchers — closures over userId so concurrent runs stay isolated.
-  const upsertMailbox = (info: MailboxInfo): Promise<number> =>
-    MT ? upsertMailboxPg(userId!, info) : Promise.resolve(upsertMailboxSqlite(info));
-  const upsertMessages = async (chunk: MailMessage[], mailboxId: number): Promise<void> => {
-    if (MT) await upsertMessagesPg(userId!, chunk, mailboxId);
-    else upsertMessagesSqlite(chunk, mailboxId);
-  };
-  const getWatermark = (name: string, account: string): Promise<string | null> =>
-    MT ? getWatermarkPg(userId!, name, account) : Promise.resolve(getWatermarkSqlite(name, account));
-  const startScanRun = (): Promise<number> =>
-    MT ? startScanRunPg(userId!) : Promise.resolve(startScanRunSqlite());
-  const updateScanProgress = async (id: number, scanned: number): Promise<void> => {
-    if (MT) await updateScanProgressPg(userId!, id, scanned);
-    else updateScanProgressSqlite(id, scanned);
-  };
-  const finishScanRun = async (id: number, scanned: number, watermark: string | null): Promise<void> => {
-    if (MT) await finishScanRunPg(userId!, id, scanned, watermark);
-    else finishScanRunSqlite(id, scanned, watermark);
-  };
-  const failScanRun = async (id: number, error: string): Promise<void> => {
-    if (MT) await failScanRunPg(userId!, id, error);
-    else failScanRunSqlite(id, error);
-  };
-
   const rescanHeaders = !!opts.rescanHeaders;
   console.log(`Starting mailbox analysis via IMAP...${rescanHeaders ? " (rescan-headers: ignoring watermark)" : ""}`);
 
-  const session = await createMailProvider(MT ? userId : undefined);
+  const session = await createMailProvider(userId);
   let allMailboxes;
   try {
     await session.open();
@@ -85,18 +45,18 @@ export async function runScan(
 
   console.log(`Connected. Found ${allMailboxes.length} mailboxes to scan.`);
 
-  const runId = await startScanRun();
+  const runId = await startScanRunPg(userId);
   let totalScanned = 0;
   let latestDate: string | null = null;
 
   try {
     for (const mbInfo of allMailboxes) {
-      const watermark = rescanHeaders ? null : await getWatermark(mbInfo.name, mbInfo.account);
+      const watermark = rescanHeaders ? null : await getWatermarkPg(userId, mbInfo.name, mbInfo.account);
       console.log(
         `Scanning "${mbInfo.name}" (${mbInfo.messageCount} messages${watermark ? `, since ${watermark}` : ", full scan"})`
       );
 
-      const mailboxId = await upsertMailbox(mbInfo);
+      const mailboxId = await upsertMailboxPg(userId, mbInfo);
 
       // onChunk is invoked synchronously by the provider, so serialize the
       // (possibly async) Postgres writes onto a chain and await it after.
@@ -110,8 +70,8 @@ export async function runScan(
           if (!latestDate || mbLatest > latestDate) latestDate = mbLatest;
           const scannedAt = totalScanned + totalSoFar;
           writeChain = writeChain.then(async () => {
-            await upsertMessages(chunk, mailboxId);
-            await updateScanProgress(runId, scannedAt);
+            await upsertMessagesPg(userId, chunk, mailboxId);
+            await updateScanProgressPg(userId, runId, scannedAt);
             console.log(`  ...${totalSoFar} messages saved`);
           });
         }
@@ -126,12 +86,12 @@ export async function runScan(
       }
     }
 
-    await finishScanRun(runId, totalScanned, latestDate);
+    await finishScanRunPg(userId, runId, totalScanned, latestDate);
     console.log(`\nDone. ${totalScanned} messages scanned/updated.`);
     if (latestDate) console.log(`Watermark: ${latestDate}`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    await failScanRun(runId, msg);
+    await failScanRunPg(userId, runId, msg);
     throw new Error(`Scan failed: ${msg}`);
   } finally {
     await session.close();
@@ -143,9 +103,9 @@ export async function runScan(
 // CLI entry — only run when invoked directly.
 if (require.main === module) {
   (async () => {
-    const userId = MT ? process.env.DEV_USER_ID : undefined;
-    if (MT && !userId) {
-      console.error("MULTI_TENANT=true requires DEV_USER_ID env var.");
+    const userId = process.env.DEV_USER_ID;
+    if (!userId) {
+      console.error("DEV_USER_ID env var required.");
       process.exit(1);
     }
     try {

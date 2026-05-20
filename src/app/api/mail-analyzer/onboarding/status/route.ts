@@ -6,23 +6,18 @@
  */
 
 import { NextResponse } from "next/server";
-import { isMultiTenant } from "@/lib/db";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/auth";
 import { onboardingState } from "@/lib/chat-agent";
 import { describeError } from "@/lib/errcause";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  if (!isMultiTenant()) {
-    return NextResponse.json({ onboarded: true, connected: true });
-  }
-  const supabase = await createClient();
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const auth = await getAuthUser();
+  if (!auth) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   try {
-    const s = await onboardingState(user.id);
+    const s = await onboardingState(auth.userId);
     return NextResponse.json({ onboarded: !s.active, connected: s.connected });
   } catch (e) {
     console.error("onboarding/status error", e);

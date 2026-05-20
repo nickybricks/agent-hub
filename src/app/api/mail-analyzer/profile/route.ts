@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { isMultiTenant } from "@/lib/db";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/auth";
 import type { AgentMemory } from "@/lib/analyzer-db";
+import { listMemoriesPg, writeMemoryPg, supersedeMemoryPg } from "@/lib/analyzer-db-pg";
 import { describeError } from "@/lib/errcause";
 
 export const dynamic = "force-dynamic";
@@ -40,35 +40,11 @@ function shape(all: AgentMemory[]): ProfilePayload {
   return { persona, prefs, memories, activity };
 }
 
-// ── SQLite (local dev) ───────────────────────────────────────────────────────
-
-async function getSqlite() {
-  const { listMemories } = await import("@/lib/analyzer-db");
-  return NextResponse.json(shape(listMemories()));
-}
-
-async function putSqlite(content: string) {
-  const { listMemories, writeMemory, supersedeMemory } = await import("@/lib/analyzer-db");
-  const prev = listMemories({ kind: "user_profile" }).find((m) => m.kind === "user_profile");
-  const newId = writeMemory({ kind: "user_profile", content, source: "user_decision" });
-  if (prev) supersedeMemory(prev.id, newId);
-  return NextResponse.json({ ok: true, id: newId });
-}
-
-// ── Postgres (multi-tenant) ──────────────────────────────────────────────────
-
-async function authedUserId() {
-  const supabase = await createClient();
-  const { data: { user }, error } = await supabase.auth.getUser();
-  return error || !user ? null : user.id;
-}
-
-async function getMultiTenant() {
-  const userId = await authedUserId();
-  if (!userId) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+export async function GET() {
+  const auth = await getAuthUser();
+  if (!auth) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   try {
-    const { listMemoriesPg } = await import("@/lib/analyzer-db-pg");
-    return NextResponse.json(shape(await listMemoriesPg(userId)));
+    return NextResponse.json(shape(await listMemoriesPg(auth.userId)));
   } catch (e) {
     console.error("profile route error", e);
     return NextResponse.json(
@@ -76,28 +52,6 @@ async function getMultiTenant() {
       { status: 200 },
     );
   }
-}
-
-async function putMultiTenant(content: string) {
-  const userId = await authedUserId();
-  if (!userId) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const { listMemoriesPg, writeMemoryPg, supersedeMemoryPg } = await import(
-    "@/lib/analyzer-db-pg"
-  );
-  const prev = (await listMemoriesPg(userId, { kind: "user_profile" }))[0];
-  const newId = await writeMemoryPg(userId, {
-    kind: "user_profile",
-    content,
-    source: "user_decision",
-  });
-  if (prev) await supersedeMemoryPg(userId, prev.id, newId);
-  return NextResponse.json({ ok: true, id: newId });
-}
-
-// ── handlers ─────────────────────────────────────────────────────────────────
-
-export async function GET() {
-  return isMultiTenant() ? getMultiTenant() : getSqlite();
 }
 
 export async function PUT(req: Request) {
@@ -110,5 +64,16 @@ export async function PUT(req: Request) {
   if (typeof content !== "string" || !content.trim()) {
     return NextResponse.json({ error: "content required" }, { status: 400 });
   }
-  return isMultiTenant() ? putMultiTenant(content.trim()) : putSqlite(content.trim());
+  const auth = await getAuthUser();
+  if (!auth) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const userId = auth.userId;
+  const trimmed = content.trim();
+  const prev = (await listMemoriesPg(userId, { kind: "user_profile" }))[0];
+  const newId = await writeMemoryPg(userId, {
+    kind: "user_profile",
+    content: trimmed,
+    source: "user_decision",
+  });
+  if (prev) await supersedeMemoryPg(userId, prev.id, newId);
+  return NextResponse.json({ ok: true, id: newId });
 }

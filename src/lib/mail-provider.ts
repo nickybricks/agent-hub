@@ -1,6 +1,3 @@
-import { readFileSync } from "fs";
-import { join } from "path";
-
 export interface MailboxInfo {
   name: string;
   account: string;
@@ -76,24 +73,9 @@ export interface MailConfig {
   outlook?: { clientId?: string; clientSecret?: string; tenantId?: string; refreshToken?: string };
 }
 
-export function readMailConfig(): MailConfig {
-  try {
-    const raw = readFileSync(join(process.cwd(), "data", "config.json"), "utf-8");
-    const parsed = JSON.parse(raw) as { mail?: MailConfig };
-    return parsed.mail ?? {};
-  } catch {
-    return {};
-  }
-}
-
-export async function createMailProvider(userId?: string): Promise<MailProvider> {
-  let cfg: MailConfig;
-  if (userId) {
-    const { getMailCredentials } = await import("./credentials");
-    cfg = await getMailCredentials(userId);
-  } else {
-    cfg = readMailConfig();
-  }
+export async function createMailProvider(userId: string): Promise<MailProvider> {
+  const { getMailCredentials } = await import("./credentials");
+  const cfg = await getMailCredentials(userId);
   const kind = cfg.provider ?? "imap";
   switch (kind) {
     case "imap": {

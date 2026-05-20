@@ -1,9 +1,6 @@
 import { NextResponse } from "next/server";
-import { readMailConfig } from "@/lib/mail-provider";
-import { upsertEnvVars } from "@/lib/env-file";
 import { readPkceCookie, clearPkceCookie } from "@/lib/oauth-pkce";
-import { isMultiTenant } from "@/lib/db";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/auth";
 import { saveVaultSecret } from "@/lib/credentials";
 
 export async function GET(request: Request) {
@@ -19,10 +16,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Invalid OAuth state" }, { status: 400 });
   }
 
-  const cfg = readMailConfig();
-  const clientId = process.env.MS_CLIENT_ID ?? cfg.outlook?.clientId;
-  const clientSecret = process.env.MS_CLIENT_SECRET ?? cfg.outlook?.clientSecret;
-  const tenantId = process.env.MS_TENANT_ID ?? cfg.outlook?.tenantId ?? "common";
+  const clientId = process.env.MS_CLIENT_ID;
+  const clientSecret = process.env.MS_CLIENT_SECRET;
+  const tenantId = process.env.MS_TENANT_ID ?? "common";
   if (!clientId || !clientSecret) {
     return NextResponse.json({ error: "Missing Microsoft client credentials" }, { status: 400 });
   }
@@ -52,13 +48,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Microsoft did not return a refresh_token." }, { status: 400 });
   }
 
-  if (isMultiTenant()) {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) await saveVaultSecret(user.id, "ms_refresh_token", tokens.refresh_token);
-  } else {
-    upsertEnvVars({ MS_REFRESH_TOKEN: tokens.refresh_token });
-  }
+  const auth = await getAuthUser();
+  if (!auth) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  await saveVaultSecret(auth.userId, "ms_refresh_token", tokens.refresh_token);
 
   const response = NextResponse.redirect(`${url.origin}/settings/mail?connected=outlook`);
   clearPkceCookie(response);

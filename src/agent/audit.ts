@@ -1,13 +1,4 @@
-import {
-  getDb,
-  clearAuditFindings as clearAuditFindingsSqlite,
-  insertAuditFindings as insertAuditFindingsSqlite,
-  startAuditRun as startAuditRunSqlite,
-  finishAuditRun as finishAuditRunSqlite,
-  failAuditRun as failAuditRunSqlite,
-  AuditFindingInput,
-  AuditFindingKind,
-} from "../lib/analyzer-db";
+import type { AuditFindingInput, AuditFindingKind } from "../lib/analyzer-db";
 import {
   clearAuditFindingsPg,
   insertAuditFindingsPg,
@@ -16,7 +7,6 @@ import {
   failAuditRunPg,
   loadAllMessagesPg,
 } from "../lib/analyzer-db-pg";
-import { isMultiTenant } from "../lib/db";
 
 export interface MsgRow {
   id: string;
@@ -30,10 +20,6 @@ export interface MsgRow {
   mailbox_name: string;
   headers_json: string | null;
   category: string | null;
-}
-
-function selfEmail(): string {
-  return (process.env.IMAP_USER || "").toLowerCase();
 }
 
 function isSpamMailbox(name: string): boolean {
@@ -73,19 +59,6 @@ function parseAuthResults(auth: string | undefined): AuthResults {
     if (!cur || VERDICT_RANK[verdict] > VERDICT_RANK[cur]) out[method] = verdict;
   }
   return out;
-}
-
-export function loadAllMessages(): MsgRow[] {
-  return getDb().prepare(`
-    SELECT m.id, m.sender_email, m.sender_name, m.subject, m.date_received,
-           m.is_read, m.size_bytes, m.mailbox_id, m.headers_json,
-           mb.name AS mailbox_name,
-           s.category AS category
-    FROM messages m
-    JOIN mailboxes mb ON m.mailbox_id = mb.id
-    LEFT JOIN senders s ON LOWER(m.sender_email) = s.email
-    WHERE LOWER(m.sender_email) != ?
-  `).all(selfEmail()) as MsgRow[];
 }
 
 export interface SenderAgg {
@@ -443,7 +416,7 @@ function scoreStaleSender(s: SenderAgg, cutoffISO: string): { score: number; rea
   };
 }
 
-export async function runAudit(userId: string | null = null): Promise<number> {
+export async function runAudit(userId: string): Promise<number> {
   const kinds: AuditFindingKind[] = [
     "false_positive_spam",
     "false_negative_inbox",
@@ -451,13 +424,12 @@ export async function runAudit(userId: string | null = null): Promise<number> {
     "hygiene_stale_sender",
     "hygiene_storage_hog",
   ];
-  const runId = userId ? await startAuditRunPg(userId) : startAuditRunSqlite();
+  const runId = await startAuditRunPg(userId);
 
   try {
-  if (userId) await clearAuditFindingsPg(userId, kinds);
-  else clearAuditFindingsSqlite(kinds);
+  await clearAuditFindingsPg(userId, kinds);
 
-  const rows = userId ? await loadAllMessagesPg(userId) : loadAllMessages();
+  const rows = await loadAllMessagesPg(userId);
   const senders = aggregate(rows);
 
   const findings: AuditFindingInput[] = [];
@@ -536,38 +508,27 @@ export async function runAudit(userId: string | null = null): Promise<number> {
     });
   }
 
-  if (userId) await insertAuditFindingsPg(userId, findings);
-  else insertAuditFindingsSqlite(findings);
-
-  if (userId) await finishAuditRunPg(userId, runId, findings.length);
-  else finishAuditRunSqlite(runId, findings.length);
+  await insertAuditFindingsPg(userId, findings);
+  await finishAuditRunPg(userId, runId, findings.length);
   return findings.length;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (userId) await failAuditRunPg(userId, runId, msg);
-    else failAuditRunSqlite(runId, msg);
+    await failAuditRunPg(userId, runId, msg);
     throw err;
   }
 }
 
 async function main() {
-  const MT = isMultiTenant();
-  const userId = MT ? process.env.DEV_USER_ID ?? null : null;
-  if (MT && !userId) {
-    console.error("MULTI_TENANT=true requires DEV_USER_ID env var.");
+  const userId = process.env.DEV_USER_ID;
+  if (!userId) {
+    console.error("DEV_USER_ID env var required.");
     process.exit(1);
   }
-
-  const runId = userId ? await startAuditRunPg(userId) : startAuditRunSqlite();
   try {
     const count = await runAudit(userId);
-    if (userId) await finishAuditRunPg(userId, runId, count);
-    else finishAuditRunSqlite(runId, count);
     console.log(`Audit complete. ${count} finding(s) written.`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (userId) await failAuditRunPg(userId, runId, msg);
-    else failAuditRunSqlite(runId, msg);
     console.error("Audit failed:", msg);
     process.exit(1);
   }

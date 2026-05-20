@@ -1,52 +1,14 @@
 import { NextResponse } from "next/server";
-import { getDb } from "@/lib/analyzer-db";
-import { isMultiTenant } from "@/lib/db";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/auth";
 import { getJunkSummaryPg } from "@/lib/analyzer-db-pg";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    if (isMultiTenant()) {
-      const supabase = await createClient();
-      const { data: { user }, error } = await supabase.auth.getUser();
-      if (error || !user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-      return NextResponse.json(await getJunkSummaryPg(user.id));
-    }
-
-    const db = getDb();
-
-    const topSenders = db.prepare(`
-      SELECT
-        m.sender_email,
-        m.sender_name,
-        COUNT(*) as message_count,
-        MAX(m.date_received) as last_seen
-      FROM messages m
-      JOIN mailboxes mb ON m.mailbox_id = mb.id
-      WHERE LOWER(mb.name) LIKE '%junk%' OR LOWER(mb.name) LIKE '%spam%'
-      GROUP BY m.sender_email
-      ORDER BY message_count DESC
-      LIMIT 30
-    `).all();
-
-    const sampleSubjects = db.prepare(`
-      SELECT m.sender_email, m.subject, m.date_received
-      FROM messages m
-      JOIN mailboxes mb ON m.mailbox_id = mb.id
-      WHERE LOWER(mb.name) LIKE '%junk%' OR LOWER(mb.name) LIKE '%spam%'
-      ORDER BY m.date_received DESC
-      LIMIT 50
-    `).all();
-
-    const total = db.prepare(`
-      SELECT COUNT(*) as count FROM messages m
-      JOIN mailboxes mb ON m.mailbox_id = mb.id
-      WHERE LOWER(mb.name) LIKE '%junk%' OR LOWER(mb.name) LIKE '%spam%'
-    `).get() as { count: number };
-
-    return NextResponse.json({ topSenders, sampleSubjects, total: total.count });
+    const auth = await getAuthUser();
+    if (!auth) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    return NextResponse.json(await getJunkSummaryPg(auth.userId));
   } catch {
     return NextResponse.json({ topSenders: [], sampleSubjects: [], total: 0 });
   }

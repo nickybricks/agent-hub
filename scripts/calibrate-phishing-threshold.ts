@@ -9,7 +9,8 @@
  *   npx tsx --env-file=.env.local scripts/calibrate-phishing-threshold.ts
  *   npx tsx --env-file=.env.local scripts/calibrate-phishing-threshold.ts --proposed=0.4
  */
-import { loadAllMessages, aggregate, scorePhishingRisk, SenderAgg } from "../src/agent/audit";
+import { aggregate, scorePhishingRisk, SenderAgg } from "../src/agent/audit";
+import { loadAllMessagesPg } from "../src/lib/analyzer-db-pg";
 
 function parseArg(name: string, fallback: number): number {
   const arg = process.argv.find((a) => a.startsWith(`--${name}=`));
@@ -28,7 +29,9 @@ async function main() {
   const proposed = parseArg("proposed", 0.4);
   console.log(`Calibrating phishing threshold: current=${current} vs proposed=${proposed}\n`);
 
-  const rows = loadAllMessages();
+  const userId = process.env.DEV_USER_ID;
+  if (!userId) throw new Error("DEV_USER_ID env var required.");
+  const rows = await loadAllMessagesPg(userId);
   const senders = aggregate(rows);
   console.log(`Loaded ${rows.length} messages across ${senders.size} senders.\n`);
 

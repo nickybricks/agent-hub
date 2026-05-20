@@ -1,18 +1,6 @@
-import {
-  aggregate,
-  loadAllMessages,
-  scoreFalsePositiveSpam,
-  type MsgRow,
-} from "./audit";
-import { isMultiTenant } from "../lib/db";
-import {
-  enqueueReview as enqueueReviewSqlite,
-  type ReviewQueueInput,
-} from "../lib/analyzer-db";
-import {
-  enqueueReviewPg,
-  loadAllMessagesPg,
-} from "../lib/analyzer-db-pg";
+import { aggregate, scoreFalsePositiveSpam, type MsgRow } from "./audit";
+import type { ReviewQueueInput } from "../lib/analyzer-db";
+import { enqueueReviewPg, loadAllMessagesPg } from "../lib/analyzer-db-pg";
 
 export interface SpamRescanResult {
   messagesScanned: number;
@@ -20,15 +8,8 @@ export interface SpamRescanResult {
   messagesEnqueued: number;
 }
 
-export async function runSpamRescan(userIdArg?: string): Promise<SpamRescanResult> {
-  const mt = isMultiTenant();
-  const userId = mt ? (userIdArg ?? process.env.DEV_USER_ID) : null;
-  if (mt && !userId) throw new Error("MULTI_TENANT=true requires a userId");
-
-  const rows: MsgRow[] = mt
-    ? ((await loadAllMessagesPg(userId!)) as MsgRow[])
-    : loadAllMessages();
-
+export async function runSpamRescan(userId: string): Promise<SpamRescanResult> {
+  const rows = (await loadAllMessagesPg(userId)) as MsgRow[];
   const senders = aggregate(rows);
   let sendersFlagged = 0;
   let messagesEnqueued = 0;
@@ -44,7 +25,7 @@ export async function runSpamRescan(userIdArg?: string): Promise<SpamRescanResul
         reason: "probably_not_spam",
         suggested_action: "not_spam",
       };
-      const ok = mt ? await enqueueReviewPg(userId!, input) : enqueueReviewSqlite(input);
+      const ok = await enqueueReviewPg(userId, input);
       if (ok) messagesEnqueued++;
     }
   }
@@ -55,10 +36,14 @@ export async function runSpamRescan(userIdArg?: string): Promise<SpamRescanResul
 // CLI entry — only run when invoked directly.
 if (require.main === module) {
   (async () => {
-    const mt = isMultiTenant();
-    console.log(`Spam re-evaluation starting [${mt ? `multi-tenant user=${process.env.DEV_USER_ID}` : "single-user SQLite"}]...`);
+    const userId = process.env.DEV_USER_ID;
+    if (!userId) {
+      console.error("DEV_USER_ID env var required.");
+      process.exit(1);
+    }
+    console.log(`Spam re-evaluation starting [user=${userId}]...`);
     try {
-      const r = await runSpamRescan();
+      const r = await runSpamRescan(userId);
       console.log(`Loaded ${r.messagesScanned} messages.`);
       console.log(`Spam rescan done. ${r.sendersFlagged} sender(s) flagged, ${r.messagesEnqueued} new review row(s).`);
     } catch (err) {

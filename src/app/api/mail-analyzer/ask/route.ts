@@ -1,13 +1,10 @@
 import { NextResponse } from "next/server";
-import { readFileSync } from "fs";
-import { join } from "path";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { traceable } from "langsmith/traceable";
 import { createLLM, LLMConfig } from "@/agent/summarize";
-import { getDb, listMemories, touchMemoryUsed, AgentMemory } from "@/lib/analyzer-db";
+import type { AgentMemory } from "@/lib/analyzer-db";
 import { listMemoriesPg, touchMemoryUsedPg, gatherAskStatsPg } from "@/lib/analyzer-db-pg";
-import { isMultiTenant } from "@/lib/db";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/auth";
 import { withGuardrail, wrapEmail } from "@/lib/prompt-safety";
 import { checkRateLimit, ipFromRequest } from "@/lib/rate-limit";
 
@@ -22,11 +19,10 @@ Answer the user's question concisely, in their language. Stick to what STATS and
 
 When you rely on a specific memory, cite it inline with [m<id>] (e.g. "[m42]"). Do not invent memory ids. You do not need to cite STATS — they are always implicit ground truth.`;
 
-function loadLLMConfig(): LLMConfig {
-  const cfg = JSON.parse(readFileSync(join(process.cwd(), "data", "config.json"), "utf-8"));
-  const agent = cfg.agents?.find((a: { id: string }) => a.id === "newsletter-summarizer");
-  if (!agent?.settings?.llm) throw new Error("No LLM config in data/config.json");
-  return { ...agent.settings.llm, systemPrompt: withGuardrail(SYSTEM_PROMPT) } as LLMConfig;
+function defaultLLMConfig(): LLMConfig {
+  const provider = process.env.ANTHROPIC_API_KEY ? "anthropic" : "openai";
+  const model = provider === "anthropic" ? "claude-sonnet-4-6" : "gpt-4o-mini";
+  return { provider, model, systemPrompt: withGuardrail(SYSTEM_PROMPT) };
 }
 
 function renderMemory(m: AgentMemory): string {
@@ -62,70 +58,6 @@ interface Stats {
   auditFindingsOpen: number;
   proposals: ProposalDetail[];
   auditByKind: AuditDetail[];
-}
-
-function gatherStats(): Stats {
-  const db = getDb();
-  const totalMessages = (db.prepare(`SELECT COUNT(*) AS c FROM messages`).get() as { c: number }).c;
-  const totalSenders = (db.prepare(`SELECT COUNT(*) AS c FROM senders`).get() as { c: number }).c;
-  const topMailboxes = db.prepare(
-    `SELECT mb.name AS name, COUNT(*) AS count FROM messages m JOIN mailboxes mb ON m.mailbox_id = mb.id GROUP BY mb.name ORDER BY count DESC LIMIT 10`
-  ).all() as { name: string; count: number }[];
-  const categoryBreakdown = db.prepare(
-    `SELECT COALESCE(category, 'unclassified') AS category, COUNT(*) AS count FROM senders GROUP BY category ORDER BY count DESC`
-  ).all() as { category: string; count: number }[];
-  const recentMoves = db.prepare(
-    `SELECT batch_id, to_mailbox, COUNT(*) AS count, MAX(applied_at) AS applied_at
-     FROM move_log WHERE status = 'applied'
-     GROUP BY batch_id, to_mailbox
-     ORDER BY applied_at DESC LIMIT 10`
-  ).all() as { batch_id: string; to_mailbox: string; count: number; applied_at: string }[];
-  const acceptedRules = (db.prepare(`SELECT COUNT(*) AS c FROM folder_rules WHERE status = 'accepted'`).get() as { c: number }).c;
-  const rejectedRules = (db.prepare(`SELECT COUNT(*) AS c FROM folder_rules WHERE status = 'rejected'`).get() as { c: number }).c;
-  const proposedFolders = (db.prepare(`SELECT COUNT(*) AS c FROM proposed_folders WHERE status = 'proposed'`).get() as { c: number }).c;
-  const createdFolders = (db.prepare(`SELECT COUNT(*) AS c FROM proposed_folders WHERE status = 'created'`).get() as { c: number }).c;
-  const auditFindingsOpen = (db.prepare(`SELECT COUNT(*) AS c FROM audit_findings WHERE dismissed_at IS NULL`).get() as { c: number }).c;
-
-  const folders = db.prepare(
-    `SELECT id, path, status, rationale FROM proposed_folders ORDER BY path`
-  ).all() as { id: number; path: string; status: string; rationale: string | null }[];
-  const rules = db.prepare(
-    `SELECT target_folder, match_type, match_value, status, confidence FROM folder_rules WHERE source = 'llm_proposal'`
-  ).all() as { target_folder: string | null; match_type: string; match_value: string; status: string; confidence: number | null }[];
-  const rulesByFolder = new Map<string, ProposalDetail["rules"]>();
-  for (const r of rules) {
-    if (!r.target_folder) continue;
-    const arr = rulesByFolder.get(r.target_folder) ?? [];
-    arr.push({ match_type: r.match_type, match_value: r.match_value, status: r.status, confidence: r.confidence });
-    rulesByFolder.set(r.target_folder, arr);
-  }
-  const proposals: ProposalDetail[] = folders.map((f) => ({
-    id: f.id,
-    path: f.path,
-    status: f.status,
-    rationale: f.rationale,
-    rules: rulesByFolder.get(f.path) ?? [],
-  }));
-
-  const auditCounts = db.prepare(
-    `SELECT kind, COUNT(*) AS count FROM audit_findings WHERE dismissed_at IS NULL GROUP BY kind`
-  ).all() as { kind: string; count: number }[];
-  const auditByKind: AuditDetail[] = auditCounts.map((row) => {
-    const examples = db.prepare(
-      `SELECT sender_email, reasoning FROM audit_findings WHERE kind = ? AND dismissed_at IS NULL ORDER BY score DESC LIMIT 3`
-    ).all(row.kind) as { sender_email: string | null; reasoning: string | null }[];
-    return {
-      kind: row.kind,
-      count: row.count,
-      examples: examples.map((e) => `${e.sender_email ?? "(no sender)"}: ${e.reasoning ?? "(no reasoning)"}`),
-    };
-  });
-
-  return {
-    totalMessages, totalSenders, topMailboxes, categoryBreakdown,
-    recentMoves, acceptedRules, rejectedRules, proposedFolders, createdFolders, auditFindingsOpen,
-    proposals, auditByKind,
-  };
 }
 
 function renderStats(s: Stats): string {
@@ -176,11 +108,9 @@ function extractCitedIds(text: string): number[] {
 }
 
 const gatherContext = traceable(
-  async (userId: string | null) => {
-    const memories = userId
-      ? await listMemoriesPg(userId, { limit: 200 })
-      : listMemories({ limit: 200 });
-    const stats = userId ? await gatherAskStatsPg(userId) : gatherStats();
+  async (userId: string) => {
+    const memories = await listMemoriesPg(userId, { limit: 200 });
+    const stats = await gatherAskStatsPg(userId);
     return { memories, stats };
   },
   { name: "ask.gather-context", run_type: "tool" },
@@ -204,12 +134,12 @@ QUESTION: ${input.question}`;
 
 async function runAsk(
   question: string,
-  userId: string | null,
+  userId: string,
 ): Promise<{ answer: string; cited: AgentMemory[] }> {
   const { memories, stats } = await gatherContext(userId);
   const userPrompt = await buildPrompt({ question, memories, stats });
 
-  const config = loadLLMConfig();
+  const config = defaultLLMConfig();
   const llm = createLLM(config);
   const callLLM = traceable(
     async () => {
@@ -233,10 +163,7 @@ async function runAsk(
   const citedIds = extractCitedIds(answer);
   const memoryById = new Map(memories.map((m) => [m.id, m]));
   const cited = citedIds.map((id) => memoryById.get(id)).filter((m): m is AgentMemory => !!m);
-  for (const m of cited) {
-    if (userId) await touchMemoryUsedPg(userId, m.id);
-    else touchMemoryUsed(m.id);
-  }
+  for (const m of cited) await touchMemoryUsedPg(userId, m.id);
 
   return { answer, cited };
 }
@@ -254,13 +181,8 @@ export async function POST(req: Request) {
   const question = body?.question?.trim();
   if (!question) return NextResponse.json({ error: "question required" }, { status: 400 });
 
-  let userId: string | null = null;
-  if (isMultiTenant()) {
-    const supabase = await createClient();
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if (error || !user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    userId = user.id;
-  }
+  const auth = await getAuthUser();
+  if (!auth) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   try {
     const tracedAsk = traceable(runAsk, {
@@ -269,7 +191,7 @@ export async function POST(req: Request) {
       tags: ["mail-analyzer", "ask"],
       metadata: { question_length: question.length },
     });
-    const { answer, cited } = await tracedAsk(question, userId);
+    const { answer, cited } = await tracedAsk(question, auth.userId);
     return NextResponse.json({
       answer,
       cited_memories: cited.map((m) => ({

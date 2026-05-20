@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { setMessageOverride, AuditFindingKind, writeMemory } from "@/lib/analyzer-db";
+import type { AuditFindingKind } from "@/lib/analyzer-db";
 import { setMessageOverridePg, writeMemoryPg } from "@/lib/analyzer-db-pg";
-import { isMultiTenant } from "@/lib/db";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -28,22 +27,17 @@ export async function POST(req: NextRequest) {
   if (!VALID_DECISIONS.includes(body.decision)) {
     return NextResponse.json({ error: "invalid decision" }, { status: 400 });
   }
-  const memo = {
-    kind: "audit_decision" as const,
-    key: body.messageId,
-    source: "user_decision" as const,
-    content: `User decision on audit finding "${body.kind}" for message ${body.messageId}: "${body.decision}".`,
-  };
 
-  if (isMultiTenant()) {
-    const supabase = await createClient();
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if (error || !user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    await setMessageOverridePg(user.id, body.messageId, body.kind, body.decision);
-    await writeMemoryPg(user.id, memo);
-  } else {
-    setMessageOverride(body.messageId, body.kind, body.decision);
-    writeMemory(memo);
-  }
+  const auth = await getAuthUser();
+  if (!auth) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const userId = auth.userId;
+
+  await setMessageOverridePg(userId, body.messageId, body.kind, body.decision);
+  await writeMemoryPg(userId, {
+    kind: "audit_decision",
+    key: body.messageId,
+    source: "user_decision",
+    content: `User decision on audit finding "${body.kind}" for message ${body.messageId}: "${body.decision}".`,
+  });
   return NextResponse.json({ ok: true });
 }

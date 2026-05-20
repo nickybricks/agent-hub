@@ -8,7 +8,8 @@
  */
 
 import { randomUUID } from "crypto";
-import { createMailProvider, readMailConfig } from "../src/lib/mail-provider";
+import { createMailProvider } from "../src/lib/mail-provider";
+import { getMailCredentials } from "../src/lib/credentials";
 import {
   logMovesPg, touchRuleAppliedPg, updateMessageMailboxPg, upsertMailboxPg, writeMemoryPg,
 } from "../src/lib/analyzer-db-pg";
@@ -47,13 +48,13 @@ async function main() {
   console.log(`Candidates: ${msgs.length}`);
   if (msgs.length === 0) { console.log("Nothing to move."); await pg.end(); return; }
 
-  const cfg = readMailConfig();
+  const cfg = await getMailCredentials(USER_ID!);
   const account = cfg.imap?.user ?? process.env.IMAP_USER ?? "default";
   const providerKind = cfg.provider ?? "imap";
   const batchId = randomUUID();
   console.log(`Batch: ${batchId}`);
 
-  const provider = await createMailProvider();
+  const provider = await createMailProvider(USER_ID!);
   await provider.open();
   try {
     const byFrom = new Map<string, Msg[]>();

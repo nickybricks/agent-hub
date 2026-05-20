@@ -21,6 +21,3 @@ export function getDrizzleDb() {
   return _drizzle;
 }
 
-export function isMultiTenant(): boolean {
-  return process.env.MULTI_TENANT === "true";
-}

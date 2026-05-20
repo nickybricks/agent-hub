@@ -1,32 +1,15 @@
 import { NextResponse } from "next/server";
-import { isMultiTenant, getDrizzleDb } from "@/lib/db";
+import { getDrizzleDb } from "@/lib/db";
 import { sql } from "drizzle-orm";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  if (isMultiTenant()) {
-    return getMultiTenantReview();
-  }
-  return getSqliteReview();
-}
-
-async function getSqliteReview() {
   try {
-    const { listReviewQueue } = await import("@/lib/analyzer-db");
-    return NextResponse.json({ items: listReviewQueue("pending", 200) });
-  } catch (e) {
-    console.error("review list error", e);
-    return NextResponse.json({ items: [] });
-  }
-}
-
-async function getMultiTenantReview() {
-  try {
-    const supabase = await createClient();
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if (error || !user) return NextResponse.json({ items: [] }, { status: 401 });
+    const auth = await getAuthUser();
+    if (!auth) return NextResponse.json({ items: [] }, { status: 401 });
+    const userId = auth.userId;
 
     const db = getDrizzleDb();
     const rows = await db.execute(sql`
@@ -36,15 +19,15 @@ async function getMultiTenantReview() {
              m.subject, m.sender_email, m.sender_name, m.date_received,
              mb.name AS mailbox_name, mb.account
       FROM review_queue rq
-      JOIN messages m ON rq.message_id = m.id AND m.user_id = ${user.id}
+      JOIN messages m ON rq.message_id = m.id AND m.user_id = ${userId}
       LEFT JOIN mailboxes mb ON rq.mailbox_id = mb.id
-      WHERE rq.user_id = ${user.id} AND rq.status = 'pending'
+      WHERE rq.user_id = ${userId} AND rq.status = 'pending'
       ORDER BY rq.created_at DESC
       LIMIT 200
     `);
     return NextResponse.json({ items: rows });
   } catch (e) {
-    console.error("multi-tenant review list error", e);
+    console.error("review list error", e);
     return NextResponse.json({ items: [] });
   }
 }

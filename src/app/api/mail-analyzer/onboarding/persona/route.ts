@@ -6,20 +6,14 @@
  */
 
 import { NextResponse } from "next/server";
-import { isMultiTenant } from "@/lib/db";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
-  if (!isMultiTenant()) {
-    return NextResponse.json({ error: "onboarding is multi-tenant only" }, { status: 400 });
-  }
-
-  const supabase = await createClient();
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const userId = user.id;
+  const auth = await getAuthUser();
+  if (!auth) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const userId = auth.userId;
 
   const body = (await req.json().catch(() => null)) as
     | { threadId?: number; persona?: string }

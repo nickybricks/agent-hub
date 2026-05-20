@@ -1,11 +1,9 @@
 import { NextResponse } from "next/server";
-import { readMailConfig } from "@/lib/mail-provider";
 import { createPkcePair, attachPkceCookie } from "@/lib/oauth-pkce";
 
 export async function GET(request: Request) {
-  const cfg = readMailConfig();
-  const clientId = process.env.MS_CLIENT_ID ?? cfg.outlook?.clientId;
-  const tenantId = process.env.MS_TENANT_ID ?? cfg.outlook?.tenantId ?? "common";
+  const clientId = process.env.MS_CLIENT_ID;
+  const tenantId = process.env.MS_TENANT_ID ?? "common";
   if (!clientId) {
     return NextResponse.json(
       { error: "Missing MS_CLIENT_ID. Configure it on the Mail settings page first." },

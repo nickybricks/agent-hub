@@ -7,8 +7,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { isMultiTenant } from "@/lib/db";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/auth";
 import { buildGreeting } from "@/lib/greeting";
 import { listThreadsPg, createThreadPg, appendMessagePg, touchThreadPg } from "@/lib/chat-db-pg";
 import { describeError } from "@/lib/errcause";
@@ -16,24 +15,22 @@ import { describeError } from "@/lib/errcause";
 export const dynamic = "force-dynamic";
 
 export async function POST() {
-  if (!isMultiTenant()) return NextResponse.json({ skip: true });
-
-  const supabase = await createClient();
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const auth = await getAuthUser();
+  if (!auth) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const userId = auth.userId;
 
   try {
-    const greeting = await buildGreeting(user.id);
+    const greeting = await buildGreeting(userId);
     if (!greeting) return NextResponse.json({ skip: true });
 
-    const threads = await listThreadsPg(user.id, 1);
-    const threadId = threads[0]?.id ?? (await createThreadPg(user.id, "Welcome back"));
-    await appendMessagePg(user.id, {
+    const threads = await listThreadsPg(userId, 1);
+    const threadId = threads[0]?.id ?? (await createThreadPg(userId, "Welcome back"));
+    await appendMessagePg(userId, {
       thread_id: threadId,
       role: "assistant",
       content: greeting.message,
     });
-    await touchThreadPg(user.id, threadId);
+    await touchThreadPg(userId, threadId);
 
     return NextResponse.json({ message: greeting.message, threadId });
   } catch (e) {

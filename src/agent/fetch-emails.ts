@@ -86,7 +86,9 @@ async function _fetchNewsletterEmails(
   }
 
   const since = new Date(Date.now() - lookbackHours * 60 * 60 * 1000);
-  const session = await createMailProvider();
+  const userId = process.env.DEV_USER_ID;
+  if (!userId) throw new Error("DEV_USER_ID env var required for legacy newsletter fetch.");
+  const session = await createMailProvider(userId);
   await session.open();
 
   const collected: Email[] = [];
