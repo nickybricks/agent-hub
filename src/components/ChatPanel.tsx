@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowUp, Mic, Square } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -71,45 +71,13 @@ function normalizeAskOptions(raw: unknown): AskOption[] {
   return out;
 }
 
-// Assistant replies are markdown (headings, tables, lists). Render them.
-// Tailwind Typography sets body/heading colours via `--tw-prose-*` CSS
-// variables; force them all to `--foreground` so the bot reads at the same
-// weight as the user bubble (the default muted grey looked like "thinking…").
-const proseColorOverrides = {
-  ["--tw-prose-body" as const]: "var(--foreground)",
-  ["--tw-prose-headings" as const]: "var(--foreground)",
-  ["--tw-prose-lead" as const]: "var(--foreground)",
-  ["--tw-prose-links" as const]: "var(--foreground)",
-  ["--tw-prose-bold" as const]: "var(--foreground)",
-  ["--tw-prose-counters" as const]: "var(--foreground)",
-  ["--tw-prose-bullets" as const]: "var(--foreground)",
-  ["--tw-prose-hr" as const]: "var(--foreground)",
-  ["--tw-prose-quotes" as const]: "var(--foreground)",
-  ["--tw-prose-quote-borders" as const]: "var(--foreground)",
-  ["--tw-prose-captions" as const]: "var(--foreground)",
-  ["--tw-prose-code" as const]: "var(--foreground)",
-  ["--tw-prose-th-borders" as const]: "var(--foreground)",
-  ["--tw-prose-td-borders" as const]: "var(--foreground)",
-  ["--tw-prose-invert-body" as const]: "var(--foreground)",
-  ["--tw-prose-invert-headings" as const]: "var(--foreground)",
-  ["--tw-prose-invert-lead" as const]: "var(--foreground)",
-  ["--tw-prose-invert-links" as const]: "var(--foreground)",
-  ["--tw-prose-invert-bold" as const]: "var(--foreground)",
-  ["--tw-prose-invert-counters" as const]: "var(--foreground)",
-  ["--tw-prose-invert-bullets" as const]: "var(--foreground)",
-  ["--tw-prose-invert-hr" as const]: "var(--foreground)",
-  ["--tw-prose-invert-quotes" as const]: "var(--foreground)",
-  ["--tw-prose-invert-quote-borders" as const]: "var(--foreground)",
-  ["--tw-prose-invert-captions" as const]: "var(--foreground)",
-  ["--tw-prose-invert-code" as const]: "var(--foreground)",
-} as CSSProperties;
-
+// Assistant replies are markdown but we want them to read at full foreground
+// weight (the default `prose` plugin colour is a muted grey). Skip the prose
+// plugin entirely — give the wrapper an explicit `text-foreground` and
+// re-create just the spacing/typography hints we actually use.
 function Markdown({ children }: { children: string }) {
   return (
-    <div
-      style={proseColorOverrides}
-      className="prose prose-sm max-w-none break-words dark:prose-invert prose-headings:mb-1 prose-headings:mt-3 prose-p:my-2 prose-pre:my-2 prose-table:my-2 prose-table:block prose-table:overflow-x-auto prose-table:text-xs"
-    >
+    <div className="max-w-none break-words text-sm leading-relaxed text-foreground [&_*]:text-foreground [&_a]:underline [&_code]:rounded [&_code]:bg-[var(--brand-soft)] [&_code]:px-1 [&_code]:py-0.5 [&_h1]:mb-1 [&_h1]:mt-3 [&_h1]:text-base [&_h1]:font-semibold [&_h2]:mb-1 [&_h2]:mt-3 [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:mb-1 [&_h3]:mt-3 [&_h3]:font-semibold [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-2 [&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-[var(--brand-soft)] [&_pre]:p-2 [&_strong]:font-semibold [&_table]:my-2 [&_table]:block [&_table]:overflow-x-auto [&_table]:text-xs [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5">
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
     </div>
   );
@@ -513,7 +481,7 @@ export default function ChatPanel() {
       <div className="flex-1 overflow-y-auto px-5 py-5">
         <div className="mx-auto w-full max-w-2xl space-y-4">
         {messages.length === 0 && !busy && (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-muted">
             e.g. “The folder proposals look off — walk me through them and suggest a cleaner
             taxonomy.”
           </p>
@@ -600,7 +568,7 @@ export default function ChatPanel() {
                         ? "Building your profile…"
                         : "Creating your folder proposals…"}
                 </div>
-                <div className="text-xs text-muted-foreground">
+                <div className="text-xs text-muted">
                   {pipeline.phase === "scanning" &&
                     `${(pipeline.scanned ?? 0).toLocaleString()} messages so far`}
                   {pipeline.phase === "classifying" &&
@@ -631,7 +599,7 @@ export default function ChatPanel() {
                   className={`rounded-md border px-2 py-1 text-xs ${
                     cProvider === p
                       ? "border-sky-500 bg-sky-500/10"
-                      : "border-input text-muted-foreground"
+                      : "border-input text-muted"
                   }`}
                 >
                   {p === "imap" ? "IMAP" : p === "gmail" ? "Gmail" : "Outlook"}
@@ -659,7 +627,7 @@ export default function ChatPanel() {
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-muted">
                 You&apos;ll be redirected to sign in with{" "}
                 {cProvider === "gmail" ? "Google" : "Microsoft"} and brought back here.
               </p>
@@ -705,16 +673,16 @@ export default function ChatPanel() {
                   )}
                 </div>
                 {opt.hint && (
-                  <div className="mt-0.5 text-xs text-muted-foreground">{opt.hint}</div>
+                  <div className="mt-0.5 text-xs text-muted">{opt.hint}</div>
                 )}
               </button>
             ))}
-            <p className="text-xs text-muted-foreground">…or type your own answer below.</p>
+            <p className="text-xs text-muted">…or type your own answer below.</p>
           </div>
         )}
 
         {busy && !liveText && chips.length === 0 && (
-          <div className="text-sm text-muted-foreground">Agent is thinking…</div>
+          <div className="text-sm text-muted">Agent is thinking…</div>
         )}
         <div ref={endRef} />
         </div>
@@ -750,7 +718,7 @@ export default function ChatPanel() {
             disabled
             aria-label="Voice input (coming soon)"
             title="Voice input (coming soon)"
-            className="rounded-full p-2 text-muted-foreground opacity-50"
+            className="rounded-full p-2 text-muted opacity-50"
           >
             <Mic size={18} />
           </button>
@@ -775,7 +743,7 @@ export default function ChatPanel() {
             </button>
           )}
         </div>
-        <p className="mt-1.5 px-1 text-xs text-muted-foreground">
+        <p className="mt-1.5 px-1 text-xs text-muted">
           Enter to send · Shift + Enter for a new line
         </p>
         </div>
