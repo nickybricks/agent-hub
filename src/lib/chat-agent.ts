@@ -459,22 +459,23 @@ export async function* streamLoop(
   const soulText = soulMems[0]?.content?.trim() ?? "";
 
   const { recent, summaryText } = await rollUpHistory(userId, threadId, history, config);
+  // Anthropic only accepts a single `system` payload, so consolidate the base
+  // prompt + soul context + rolling summary into ONE SystemMessage. Multiple
+  // consecutive SystemMessages trigger
+  // "System messages are only permitted as the first passed message".
+  const systemSections = [config.systemPrompt];
+  if (soulText) {
+    systemSections.push(
+      `What you know about this user (use their name and yours if they've given one; don't re-ask any of this):\n${soulText}`,
+    );
+  }
+  if (summaryText) {
+    systemSections.push(
+      `Summary of earlier conversation (context — not repeated verbatim below):\n${summaryText}`,
+    );
+  }
   const msgs: BaseMessage[] = [
-    new SystemMessage(config.systemPrompt),
-    ...(soulText
-      ? [
-          new SystemMessage(
-            `What you know about this user (use their name and yours if they've given one; don't re-ask any of this):\n${soulText}`,
-          ),
-        ]
-      : []),
-    ...(summaryText
-      ? [
-          new SystemMessage(
-            `Summary of earlier conversation (context — not repeated verbatim below):\n${summaryText}`,
-          ),
-        ]
-      : []),
+    new SystemMessage(systemSections.join("\n\n---\n\n")),
     ...toLangChain(recent),
   ];
   const callOpts = {
