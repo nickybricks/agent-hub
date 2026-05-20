@@ -25,11 +25,16 @@ import { ChatAnthropic } from "@langchain/anthropic";
 import { traceable } from "langsmith/traceable";
 import { createLLM, type LLMConfig } from "@/agent/summarize";
 import { withGuardrail } from "./prompt-safety";
-import { TOOL_SPECS, getToolSpec, runReadTool, previewMutation } from "./chat-tools";
-import * as sq from "./chat-db";
+import {
+  TOOL_SPECS,
+  getToolSpec,
+  runReadTool,
+  previewMutation,
+  normalizeAskOptions,
+  type AskOption,
+} from "./chat-tools";
 import * as pg from "./chat-db-pg";
 import type { ChatMessage } from "./chat-db";
-import { writeMemory, listMemories } from "./analyzer-db";
 import { writeMemoryPg, listMemoriesPg } from "./analyzer-db-pg";
 import { getMailCredentials } from "./credentials";
 
@@ -52,6 +57,7 @@ Rules:
 - Request at most ONE mutating action at a time. After it resolves, continue.
 - Never invent ids, folder paths, rule ids, or sender addresses. If you need one, look it up with a read tool first.
 - When you need ANY clarification, you MUST call the \`ask_user\` tool with the question and 2–4 short candidate answers — never ask a clarifying question as plain assistant text. The user can still type a free answer instead of clicking one. Only skip \`ask_user\` if there are genuinely no plausible candidate answers to offer.
+- When the user volunteers a durable personal fact (their name, what to call them, the name they've given you, their occupation, a sentence of personal context), call \`remember_about_user\` once with a concise note. Never interrogate for these facts — only capture what the user offers. Don't re-ask anything already in the soul-context below.
 - Cite memories inline as [m<id>] when you rely on one.
 - Be concise and answer in the user's language.`;
 
@@ -76,59 +82,21 @@ Rules:
 - Do not call any non-onboarding tools during onboarding.
 - Answer in the user's language. Keep every message to 1–3 sentences.`;
 
-// ── dual-path store ──────────────────────────────────────────────────────────
+// ── persistence wrappers ─────────────────────────────────────────────────────
 
-function listMessages(userId: string | null, threadId: number) {
-  return userId ? pg.listMessagesPg(userId, threadId) : Promise.resolve(sq.listMessages(threadId));
-}
-function appendMessage(userId: string | null, m: Parameters<typeof sq.appendMessage>[0]) {
-  return userId ? pg.appendMessagePg(userId, m) : Promise.resolve(sq.appendMessage(m));
-}
-function createToolCall(userId: string | null, c: Parameters<typeof sq.createToolCall>[0]) {
-  return userId ? pg.createToolCallPg(userId, c) : Promise.resolve(sq.createToolCall(c));
-}
-function touchThread(userId: string | null, id: number) {
-  return userId ? pg.touchThreadPg(userId, id) : Promise.resolve(sq.touchThread(id));
-}
-export function getToolCall(userId: string | null, id: number) {
-  return userId ? pg.getToolCallPg(userId, id) : Promise.resolve(sq.getToolCall(id));
-}
-export function finishToolCall(
-  userId: string | null,
-  id: number,
-  status: "executed" | "cancelled" | "failed",
-  result?: string | null,
-) {
-  return userId
-    ? pg.finishToolCallPg(userId, id, status, result)
-    : Promise.resolve(sq.finishToolCall(id, status, result));
-}
-function savePendingAsk(
-  userId: string | null,
-  threadId: number,
-  question: string,
-  options: string[],
-) {
-  return userId
-    ? pg.savePendingAskPg(userId, threadId, question, options)
-    : Promise.resolve(sq.savePendingAsk(threadId, question, options));
-}
-function clearPendingAsks(userId: string | null, threadId: number) {
-  return userId
-    ? pg.clearPendingAsksPg(userId, threadId)
-    : Promise.resolve(sq.clearPendingAsks(threadId));
-}
-export function getPendingAsk(userId: string | null, threadId: number) {
-  return userId
-    ? pg.getPendingAskPg(userId, threadId)
-    : Promise.resolve(sq.getPendingAsk(threadId));
-}
+const listMessages = pg.listMessagesPg;
+const appendMessage = pg.appendMessagePg;
+const createToolCall = pg.createToolCallPg;
+const touchThread = pg.touchThreadPg;
+export const getToolCall = pg.getToolCallPg;
+export const finishToolCall = pg.finishToolCallPg;
+const savePendingAsk = pg.savePendingAskPg;
+const clearPendingAsks = pg.clearPendingAsksPg;
+export const getPendingAsk = pg.getPendingAskPg;
 
-export async function loadThreadState(userId: string | null, threadId: number) {
+export async function loadThreadState(userId: string, threadId: number) {
   const messages = await listMessages(userId, threadId);
-  const pendingRow = userId
-    ? await pg.getPendingToolCallPg(userId, threadId)
-    : sq.getPendingToolCall(threadId);
+  const pendingRow = await pg.getPendingToolCallPg(userId, threadId);
   const pending = pendingRow
     ? {
         id: pendingRow.id,
@@ -141,16 +109,14 @@ export async function loadThreadState(userId: string | null, threadId: number) {
 }
 
 /**
- * Onboarding is complete once a `user_profile` memory exists. Local single-user
- * dev (userId null) has no onboarding. Returns connection + answer state used to
- * drive the onboarding system prompt.
+ * Onboarding is complete once a `user_profile` memory exists. Returns
+ * connection + answer state used to drive the onboarding system prompt.
  */
-export async function onboardingState(userId: string | null): Promise<{
+export async function onboardingState(userId: string): Promise<{
   active: boolean;
   connected: boolean;
   answered: string[];
 }> {
-  if (!userId) return { active: false, connected: true, answered: [] };
   const profile = await listMemoriesPg(userId, { kind: "user_profile", limit: 1 });
   if (profile.length > 0) return { active: false, connected: true, answered: [] };
 
@@ -173,9 +139,13 @@ export async function onboardingState(userId: string | null): Promise<{
   return { active: true, connected, answered };
 }
 
-export function persistMemory(userId: string | null, content: string, key: string | null) {
-  const memo = { kind: "user_pref" as const, key, content, source: "user_decision" as const };
-  return userId ? writeMemoryPg(userId, memo) : Promise.resolve(writeMemory(memo));
+export function persistMemory(userId: string, content: string, key: string | null) {
+  return writeMemoryPg(userId, {
+    kind: "user_pref",
+    key,
+    content,
+    source: "user_decision",
+  });
 }
 
 // ── LLM config + model ───────────────────────────────────────────────────────
@@ -340,31 +310,25 @@ interface SummaryState {
   text: string;
 }
 
-function readSummary(userId: string | null, threadId: number): Promise<SummaryState> {
+function readSummary(userId: string, threadId: number): Promise<SummaryState> {
   const key = `chat_summary:${threadId}`;
-  const parse = (content?: string): SummaryState => {
+  return listMemoriesPg(userId, { kind: "system", key, limit: 1 }).then((r) => {
     try {
-      const o = JSON.parse(content ?? "");
+      const o = JSON.parse(r[0]?.content ?? "");
       return { through: Number(o.through) || 0, text: String(o.text ?? "") };
     } catch {
       return { through: 0, text: "" };
     }
-  };
-  return (
-    userId
-      ? listMemoriesPg(userId, { kind: "system", key, limit: 1 }).then((r) => parse(r[0]?.content))
-      : Promise.resolve(parse(listMemories({ kind: "system", key, limit: 1 })[0]?.content))
-  );
+  });
 }
 
-function saveSummary(userId: string | null, threadId: number, s: SummaryState) {
-  const memo = {
-    kind: "system" as const,
+function saveSummary(userId: string, threadId: number, s: SummaryState) {
+  return writeMemoryPg(userId, {
+    kind: "system",
     key: `chat_summary:${threadId}`,
     content: JSON.stringify(s),
-    source: "self" as const,
-  };
-  return userId ? writeMemoryPg(userId, memo) : Promise.resolve(writeMemory(memo));
+    source: "self",
+  });
 }
 
 /**
@@ -373,7 +337,7 @@ function saveSummary(userId: string | null, threadId: number, s: SummaryState) {
  * memory. Returns the recent slice + the summary text to prepend as context.
  */
 async function rollUpHistory(
-  userId: string | null,
+  userId: string,
   threadId: number,
   history: ChatMessage[],
   base: LLMConfig,
@@ -445,7 +409,7 @@ export type ChatEvent =
   | { type: "token"; delta: string }
   | { type: "tool"; name: string; phase: "running" | "done"; summary?: string }
   | { type: "pending"; pending: PendingToolCall }
-  | { type: "ask"; question: string; options: string[] }
+  | { type: "ask"; question: string; options: AskOption[] }
   | { type: "connect" }
   | { type: "pipeline" }
   | { type: "final"; assistantText: string };
@@ -456,7 +420,7 @@ export type ChatEvent =
  * confirmation. Caller must have already persisted the triggering message.
  */
 export async function* streamLoop(
-  userId: string | null,
+  userId: string,
   threadId: number,
   signal?: AbortSignal,
 ): AsyncGenerator<ChatEvent> {
@@ -477,9 +441,19 @@ export async function* streamLoop(
     config.systemPrompt = withGuardrail(`${ONBOARDING_SYSTEM_PROMPT}\n\n${state}`);
   }
 
+  const soulMems = await listMemoriesPg(userId, { kind: "soul", limit: 1 });
+  const soulText = soulMems[0]?.content?.trim() ?? "";
+
   const { recent, summaryText } = await rollUpHistory(userId, threadId, history, config);
   const msgs: BaseMessage[] = [
     new SystemMessage(config.systemPrompt),
+    ...(soulText
+      ? [
+          new SystemMessage(
+            `What you know about this user (use their name and yours if they've given one; don't re-ask any of this):\n${soulText}`,
+          ),
+        ]
+      : []),
     ...(summaryText
       ? [
           new SystemMessage(
@@ -526,9 +500,7 @@ export async function* streamLoop(
     const ask = toolCalls.find((tc) => getToolSpec(tc.name)?.kind === "ask");
     if (ask) {
       const question = String(ask.args.question ?? "").trim();
-      const options = Array.isArray(ask.args.options)
-        ? (ask.args.options as unknown[]).map(String).filter(Boolean).slice(0, 4)
-        : [];
+      const options = normalizeAskOptions(ask.args.options);
       const reasoning = text.trim();
       const content = reasoning && reasoning !== question ? `${reasoning}\n\n${question}` : question;
       await appendMessage(userId, { thread_id: threadId, role: "assistant", content });

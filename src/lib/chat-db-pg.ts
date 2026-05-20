@@ -8,6 +8,7 @@
 import { getDrizzleDb } from "./db";
 import { sql } from "drizzle-orm";
 import type { ChatThread, ChatMessage, ChatRole, ToolCallRow, ToolCallStatus } from "./chat-db";
+import { normalizeAskOptions, type AskOption } from "./chat-tools";
 
 export async function createThreadPg(userId: string, title?: string | null): Promise<number> {
   const db = getDrizzleDb();
@@ -125,7 +126,7 @@ export async function savePendingAskPg(
   userId: string,
   threadId: number,
   question: string,
-  options: string[],
+  options: AskOption[],
 ): Promise<void> {
   const db = getDrizzleDb();
   await db.execute(sql`
@@ -138,7 +139,7 @@ export async function savePendingAskPg(
 export async function getPendingAskPg(
   userId: string,
   threadId: number,
-): Promise<{ question: string; options: string[] } | null> {
+): Promise<{ question: string; options: AskOption[] } | null> {
   const db = getDrizzleDb();
   const rows = await db.execute(sql`
     SELECT tool_input FROM tool_calls
@@ -148,8 +149,8 @@ export async function getPendingAskPg(
   const r = rows[0] as { tool_input: string } | undefined;
   if (!r) return null;
   try {
-    const p = JSON.parse(r.tool_input) as { question: string; options: string[] };
-    return { question: p.question, options: p.options ?? [] };
+    const p = JSON.parse(r.tool_input) as { question: string; options: unknown };
+    return { question: p.question, options: normalizeAskOptions(p.options) };
   } catch {
     return null;
   }

@@ -1,54 +1,37 @@
 import { NextResponse } from "next/server";
-import { isMultiTenant } from "@/lib/db";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/auth";
 import { checkRateLimit, ipFromRequest } from "@/lib/rate-limit";
 import { chatStreamResponse } from "@/lib/chat-stream";
-import * as sq from "@/lib/chat-db";
-import * as pg from "@/lib/chat-db-pg";
+import {
+  listThreadsPg,
+  getThreadPg,
+  listMessagesPg,
+  createThreadPg,
+  appendMessagePg,
+  getPendingToolCallPg,
+  getPendingAskPg,
+} from "@/lib/chat-db-pg";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-async function resolveUser(): Promise<string | null | { error: NextResponse }> {
-  if (!isMultiTenant()) return null;
-  const supabase = await createClient();
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) return { error: NextResponse.json({ error: "unauthorized" }, { status: 401 }) };
-  return user.id;
-}
-
-const listThreads = (u: string | null) =>
-  u ? pg.listThreadsPg(u) : Promise.resolve(sq.listThreads());
-const getThread = (u: string | null, id: number) =>
-  u ? pg.getThreadPg(u, id) : Promise.resolve(sq.getThread(id));
-const listMessages = (u: string | null, id: number) =>
-  u ? pg.listMessagesPg(u, id) : Promise.resolve(sq.listMessages(id));
-const createThread = (u: string | null, title: string) =>
-  u ? pg.createThreadPg(u, title) : Promise.resolve(sq.createThread(title));
-const appendMessage = (u: string | null, m: Parameters<typeof sq.appendMessage>[0]) =>
-  u ? pg.appendMessagePg(u, m) : Promise.resolve(sq.appendMessage(m));
-const getPendingToolCall = (u: string | null, threadId: number) =>
-  u ? pg.getPendingToolCallPg(u, threadId) : Promise.resolve(sq.getPendingToolCall(threadId));
-const getPendingAsk = (u: string | null, threadId: number) =>
-  u ? pg.getPendingAskPg(u, threadId) : Promise.resolve(sq.getPendingAsk(threadId));
-
 // List threads, or (with ?threadId=) one thread's transcript + any pending tool call.
 export async function GET(req: Request) {
-  const u = await resolveUser();
-  if (u && typeof u === "object") return u.error;
-  const userId = u as string | null;
+  const auth = await getAuthUser();
+  if (!auth) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const userId = auth.userId;
 
   const threadId = Number(new URL(req.url).searchParams.get("threadId"));
   if (!threadId) {
-    return NextResponse.json({ threads: await listThreads(userId) });
+    return NextResponse.json({ threads: await listThreadsPg(userId) });
   }
 
-  const thread = await getThread(userId, threadId);
+  const thread = await getThreadPg(userId, threadId);
   if (!thread) return NextResponse.json({ error: "thread not found" }, { status: 404 });
-  const messages = await listMessages(userId, threadId);
+  const messages = await listMessagesPg(userId, threadId);
 
   // Surface the still-pending tool call so a reload can resume the confirm card.
-  const pendingRow = await getPendingToolCall(userId, threadId);
+  const pendingRow = await getPendingToolCallPg(userId, threadId);
   const pending = pendingRow
     ? {
         id: pendingRow.id,
@@ -60,7 +43,7 @@ export async function GET(req: Request) {
 
   // Resurface a still-open ask_user so the option buttons survive a reload
   // (and a returning-user greeting that reloads the thread).
-  const asking = await getPendingAsk(userId, threadId);
+  const asking = await getPendingAskPg(userId, threadId);
 
   return NextResponse.json({ thread, messages, pending, asking });
 }
@@ -74,9 +57,9 @@ export async function POST(req: Request) {
     );
   }
 
-  const u = await resolveUser();
-  if (u && typeof u === "object") return u.error;
-  const userId = u as string | null;
+  const auth = await getAuthUser();
+  if (!auth) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const userId = auth.userId;
 
   const body = (await req.json().catch(() => null)) as
     | { threadId?: number; message?: string }
@@ -86,13 +69,13 @@ export async function POST(req: Request) {
 
   let threadId = body?.threadId;
   if (threadId) {
-    const t = await getThread(userId, threadId);
+    const t = await getThreadPg(userId, threadId);
     if (!t) return NextResponse.json({ error: "thread not found" }, { status: 404 });
   } else {
-    threadId = await createThread(userId, message.slice(0, 60));
+    threadId = await createThreadPg(userId, message.slice(0, 60));
   }
 
-  await appendMessage(userId, { thread_id: threadId, role: "user", content: message });
+  await appendMessagePg(userId, { thread_id: threadId, role: "user", content: message });
 
   return chatStreamResponse(userId, threadId, req.signal, { turn_kind: "message" });
 }

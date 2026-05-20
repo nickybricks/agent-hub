@@ -8,9 +8,13 @@
  */
 
 import { NextResponse } from "next/server";
-import { isMultiTenant } from "@/lib/db";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/auth";
 import { applyRule, ApplyError } from "@/lib/apply-rule";
+import {
+  getProposalsWithRulesPg,
+  setProposedFolderStatusPg,
+  setFolderRuleStatusPg,
+} from "@/lib/analyzer-db-pg";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -25,20 +29,11 @@ export async function POST(req: Request) {
   }
   const folderId = body?.folderId;
 
-  let userId: string | null = null;
-  if (isMultiTenant()) {
-    const supabase = await createClient();
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if (error || !user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    userId = user.id;
-  }
+  const auth = await getAuthUser();
+  if (!auth) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const userId = auth.userId;
 
-  const dbPg = await import("@/lib/analyzer-db-pg");
-  const dbLite = await import("@/lib/analyzer-db");
-
-  const proposals = userId
-    ? await dbPg.getProposalsWithRulesPg(userId)
-    : dbLite.getProposalsWithRules();
+  const proposals = await getProposalsWithRulesPg(userId);
 
   const scoped =
     folderId != null ? proposals.filter((p) => p.folder.id === folderId) : proposals;
@@ -47,13 +42,11 @@ export async function POST(req: Request) {
   if (action === "accept") {
     for (const p of scoped) {
       if (p.folder.status === "proposed") {
-        if (userId) await dbPg.setProposedFolderStatusPg(userId, p.folder.id, "accepted");
-        else dbLite.setProposedFolderStatus(p.folder.id, "accepted");
+        await setProposedFolderStatusPg(userId, p.folder.id, "accepted");
       }
       for (const r of p.rules) {
         if (r.status === "proposed") {
-          if (userId) await dbPg.setFolderRuleStatusPg(userId, r.id, "accepted");
-          else dbLite.setFolderRuleStatus(r.id, "accepted");
+          await setFolderRuleStatusPg(userId, r.id, "accepted");
         }
       }
     }

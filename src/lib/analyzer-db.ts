@@ -889,6 +889,7 @@ export function updateMessageMailbox(messageId: string, mailboxId: number) {
 export type MemoryKind =
   | "user_profile"
   | "user_pref"
+  | "soul"
   | "sender_fact"
   | "rule_rationale"
   | "proposal_run"

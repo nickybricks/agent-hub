@@ -4,6 +4,7 @@
  */
 
 import { getDb } from "./analyzer-db";
+import { normalizeAskOptions, type AskOption } from "./chat-tools";
 
 export type ChatRole = "user" | "assistant" | "tool";
 export type ToolCallStatus = "pending" | "executed" | "cancelled" | "failed";
@@ -134,7 +135,7 @@ export function getPendingToolCall(threadId: number): ToolCallRow | null {
 export function savePendingAsk(
   threadId: number,
   question: string,
-  options: string[],
+  options: AskOption[],
 ): void {
   getDb()
     .prepare(
@@ -146,7 +147,7 @@ export function savePendingAsk(
 
 export function getPendingAsk(
   threadId: number,
-): { question: string; options: string[] } | null {
+): { question: string; options: AskOption[] } | null {
   const r = getDb()
     .prepare(
       `SELECT tool_input FROM tool_calls WHERE thread_id = ? AND status = 'asking' ORDER BY id DESC LIMIT 1`,
@@ -154,8 +155,8 @@ export function getPendingAsk(
     .get(threadId) as { tool_input: string } | undefined;
   if (!r) return null;
   try {
-    const p = JSON.parse(r.tool_input) as { question: string; options: string[] };
-    return { question: p.question, options: p.options ?? [] };
+    const p = JSON.parse(r.tool_input) as { question: string; options: unknown };
+    return { question: p.question, options: normalizeAskOptions(p.options) };
   } catch {
     return null;
   }

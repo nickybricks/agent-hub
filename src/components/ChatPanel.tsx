@@ -33,15 +33,48 @@ interface ThreadInfo {
   updated_at: string;
 }
 
+interface AskOption {
+  label: string;
+  hint?: string;
+  recommended?: boolean;
+}
+
 interface Asking {
   question: string;
-  options: string[];
+  options: AskOption[];
+}
+
+// Tolerant of the legacy string shape (in-flight pre-change threads) and the
+// new {label,hint,recommended} objects the server now emits.
+function normalizeAskOptions(raw: unknown): AskOption[] {
+  if (!Array.isArray(raw)) return [];
+  const out: AskOption[] = [];
+  let recommendedSeen = false;
+  for (const item of raw) {
+    if (typeof item === "string") {
+      const label = item.trim();
+      if (label) out.push({ label });
+    } else if (item && typeof item === "object") {
+      const o = item as { label?: unknown; hint?: unknown; recommended?: unknown };
+      const label = typeof o.label === "string" ? o.label.trim() : "";
+      if (!label) continue;
+      const opt: AskOption = { label };
+      if (typeof o.hint === "string" && o.hint.trim()) opt.hint = o.hint.trim();
+      if (o.recommended === true && !recommendedSeen) {
+        opt.recommended = true;
+        recommendedSeen = true;
+      }
+      out.push(opt);
+    }
+    if (out.length >= 4) break;
+  }
+  return out;
 }
 
 // Assistant replies are markdown (headings, tables, lists). Render them.
 function Markdown({ children }: { children: string }) {
   return (
-    <div className="prose prose-sm max-w-none break-words dark:prose-invert prose-headings:mb-1 prose-headings:mt-3 prose-p:my-2 prose-pre:my-2 prose-table:my-2 prose-table:block prose-table:overflow-x-auto prose-table:text-xs">
+    <div className="prose prose-sm max-w-none break-words text-[var(--foreground)] dark:prose-invert prose-headings:mb-1 prose-headings:mt-3 prose-headings:text-inherit prose-p:my-2 prose-p:text-inherit prose-li:text-inherit prose-strong:text-inherit prose-pre:my-2 prose-table:my-2 prose-table:block prose-table:overflow-x-auto prose-table:text-xs">
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
     </div>
   );
@@ -117,11 +150,10 @@ export default function ChatPanel() {
         setPending(td.pending ?? null);
         // A still-open ask_user is resurfaced by the server so the option
         // buttons survive a reload / returning-user greeting.
-        setAsking(
-          td.asking?.options?.length
-            ? { question: td.asking.question, options: td.asking.options }
-            : null,
-        );
+        {
+          const opts = normalizeAskOptions(td.asking?.options);
+          setAsking(opts.length ? { question: td.asking.question, options: opts } : null);
+        }
         setConnectCard(false);
         setPersona(null);
         setPipeline(null);
@@ -294,7 +326,7 @@ export default function ChatPanel() {
         } else if (ev.type === "pending") {
           setPending(ev.pending);
         } else if (ev.type === "ask") {
-          setAsking({ question: ev.question, options: ev.options ?? [] });
+          setAsking({ question: ev.question, options: normalizeAskOptions(ev.options) });
         } else if (ev.type === "connect") {
           setConnectCard(true);
         } else if (ev.type === "pipeline") {
@@ -622,15 +654,27 @@ export default function ChatPanel() {
         )}
 
         {asking && !busy && asking.options.length > 0 && (
-          <div className="flex flex-wrap gap-2">
+          <div className="space-y-2">
             {asking.options.map((opt, i) => (
-              <Button key={i} variant="ghost" onClick={() => sendMessage(opt)}>
-                {opt}
-              </Button>
+              <button
+                key={i}
+                onClick={() => sendMessage(opt.label)}
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-left transition hover:border-[var(--brand)] hover:bg-[var(--brand-soft)]"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-foreground">{opt.label}</span>
+                  {opt.recommended && (
+                    <span className="rounded-full bg-[var(--brand-soft)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--brand)]">
+                      Recommended
+                    </span>
+                  )}
+                </div>
+                {opt.hint && (
+                  <div className="mt-0.5 text-xs text-muted-foreground">{opt.hint}</div>
+                )}
+              </button>
             ))}
-            <span className="self-center text-xs text-muted-foreground">
-              …or type your own answer below
-            </span>
+            <p className="text-xs text-muted-foreground">…or type your own answer below.</p>
           </div>
         )}
 

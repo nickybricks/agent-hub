@@ -9,7 +9,7 @@ import { traceable } from "langsmith/traceable";
 import { streamLoop, loadThreadState, type ChatEvent } from "./chat-agent";
 
 export function chatStreamResponse(
-  userId: string | null,
+  userId: string,
   threadId: number,
   signal: AbortSignal,
   meta: { turn_kind: "message" | "confirm" },

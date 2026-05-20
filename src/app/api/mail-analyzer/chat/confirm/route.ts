@@ -1,26 +1,17 @@
 import { NextResponse } from "next/server";
-import { isMultiTenant } from "@/lib/db";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/auth";
 import { executeMutation } from "@/lib/chat-tools";
 import { getToolCall, finishToolCall, persistMemory } from "@/lib/chat-agent";
 import { chatStreamResponse } from "@/lib/chat-stream";
-import * as sq from "@/lib/chat-db";
-import * as pg from "@/lib/chat-db-pg";
+import { appendMessagePg } from "@/lib/chat-db-pg";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-const appendMessage = (u: string | null, m: Parameters<typeof sq.appendMessage>[0]) =>
-  u ? pg.appendMessagePg(u, m) : Promise.resolve(sq.appendMessage(m));
-
 export async function POST(req: Request) {
-  let userId: string | null = null;
-  if (isMultiTenant()) {
-    const supabase = await createClient();
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if (error || !user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    userId = user.id;
-  }
+  const auth = await getAuthUser();
+  if (!auth) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const userId = auth.userId;
 
   const body = (await req.json().catch(() => null)) as
     | { toolCallId?: number; decision?: "apply" | "cancel" }
@@ -42,7 +33,7 @@ export async function POST(req: Request) {
 
   if (decision === "cancel") {
     await finishToolCall(userId, tc.id, "cancelled");
-    await appendMessage(userId, {
+    await appendMessagePg(userId, {
       thread_id: threadId,
       role: "tool",
       tool_name: tc.tool_name,
@@ -58,7 +49,7 @@ export async function POST(req: Request) {
       const result = await executeMutation(userId, tc.tool_name, input);
       const json = JSON.stringify(result);
       await finishToolCall(userId, tc.id, "executed", json);
-      await appendMessage(userId, {
+      await appendMessagePg(userId, {
         thread_id: threadId,
         role: "tool",
         tool_name: tc.tool_name,
@@ -72,7 +63,7 @@ export async function POST(req: Request) {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       await finishToolCall(userId, tc.id, "failed", JSON.stringify({ error: msg }));
-      await appendMessage(userId, {
+      await appendMessagePg(userId, {
         thread_id: threadId,
         role: "tool",
         tool_name: tc.tool_name,

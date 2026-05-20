@@ -1,26 +1,12 @@
 /**
  * Phase 3.5 tool registry. Read-only tools auto-run; mutating tools produce a
- * preview the user must confirm before execute fires. Dual-path: every executor
- * branches on userId (null = SQLite single-user, set = Postgres tenant).
+ * preview the user must confirm before execute fires.
  */
 
-import {
-  getProposalsWithRules,
-  getFolderRule,
-  listAuditFindings,
-  getSendersForProposal,
-  listRecentMoves,
-  listMemories,
-  updateProposedFolderPath,
-  setProposedFolderStatus,
-  setFolderRuleStatus,
-  updateFolderRuleMatch,
-  dismissAuditFinding,
-  setMessageOverride,
-  writeMemory,
-  type AuditFindingKind,
-  type ProposedFolderStatus,
-  type FolderRuleStatus,
+import type {
+  AuditFindingKind,
+  ProposedFolderStatus,
+  FolderRuleStatus,
 } from "./analyzer-db";
 import {
   getProposalsWithRulesPg,
@@ -36,10 +22,46 @@ import {
   dismissAuditFindingPg,
   setMessageOverridePg,
   writeMemoryPg,
+  supersedeMemoryPg,
 } from "./analyzer-db-pg";
 import { previewRule, applyRule } from "./apply-rule";
 
 export type ToolKind = "read" | "mutate" | "ask" | "onboard";
+
+// Shared option shape for ask_user. `label` is what the user sees on the
+// button; `hint` is a one-line plain-language explanation; `recommended`
+// flags at most one option as the suggested default.
+export interface AskOption {
+  label: string;
+  hint?: string;
+  recommended?: boolean;
+}
+
+// Tolerant of legacy string-array shapes and back-compat with model slips.
+export function normalizeAskOptions(raw: unknown): AskOption[] {
+  if (!Array.isArray(raw)) return [];
+  const out: AskOption[] = [];
+  let recommendedSeen = false;
+  for (const item of raw) {
+    if (typeof item === "string") {
+      const label = item.trim();
+      if (label) out.push({ label });
+    } else if (item && typeof item === "object") {
+      const o = item as { label?: unknown; hint?: unknown; recommended?: unknown };
+      const label = typeof o.label === "string" ? o.label.trim() : "";
+      if (!label) continue;
+      const opt: AskOption = { label };
+      if (typeof o.hint === "string" && o.hint.trim()) opt.hint = o.hint.trim();
+      if (o.recommended === true && !recommendedSeen) {
+        opt.recommended = true;
+        recommendedSeen = true;
+      }
+      out.push(opt);
+    }
+    if (out.length >= 4) break;
+  }
+  return out;
+}
 
 export interface ToolSpec {
   name: string;
@@ -68,15 +90,30 @@ export const TOOL_SPECS: ToolSpec[] = [
     name: "ask_user",
     kind: "ask",
     description:
-      "Ask the user a clarifying question when discrete choices exist. Provide 2–4 short predefined options they can click; they may also answer freely. Ends your turn until they reply. Prefer this over a plain question when the answer is a choice.",
+      "Ask the user a clarifying question when discrete choices exist. Provide 2–4 short options as objects { label, hint, recommended }: `label` is the short button text (required), `hint` is a one-line plain-language explanation of what the option means or does (strongly encouraged), and at most ONE option may set `recommended: true` — its `hint` should start with the reason you'd advise it. Recommend an option whenever you sensibly can; skip the badge only when the choice is genuinely user-preference with no better default. The user may also type a free answer. Ends your turn until they reply. Prefer this over a plain question when the answer is a choice.",
     schema: {
       type: "object",
       properties: {
         question: { type: "string", description: "the clarifying question" },
         options: {
           type: "array",
-          items: { type: "string" },
-          description: "2–4 short answer options the user can click",
+          items: {
+            type: "object",
+            properties: {
+              label: { type: "string", description: "short button text the user clicks" },
+              hint: {
+                type: "string",
+                description: "one-line plain-language explanation of what this option means or does",
+              },
+              recommended: {
+                type: "boolean",
+                description: "true on at most one option you'd advise; its hint should start with the reason",
+              },
+            },
+            required: ["label"],
+            additionalProperties: false,
+          },
+          description: "2–4 answer options",
         },
       },
       required: ["question", "options"],
@@ -106,6 +143,23 @@ export const TOOL_SPECS: ToolSpec[] = [
         answer: { type: "string", description: "the user's answer, verbatim or lightly normalised" },
       },
       required: ["key", "answer"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "remember_about_user",
+    kind: "read",
+    description:
+      "Save a short, durable personal fact the user volunteered (their name, what to call them, the name they gave you, occupation, a sentence of personal context). Auto-runs. Only call when the user actually reveals something durable — never interrogate, never speculate. One concise first-person-about-the-user note per call; the system merges it into a single evolving 'soul' memory.",
+    schema: {
+      type: "object",
+      properties: {
+        note: {
+          type: "string",
+          description: "one concise note, e.g. 'Prefers to be called Nick.' or 'Works as a data scientist on observability.'",
+        },
+      },
+      required: ["note"],
       additionalProperties: false,
     },
   },
@@ -311,24 +365,22 @@ const str = (v: unknown) => String(v);
 
 /** Execute a read-only tool immediately. Returns a JSON-able result. */
 export async function runReadTool(
-  userId: string | null,
+  userId: string,
   name: string,
   input: Input,
 ): Promise<unknown> {
   switch (name) {
     case "list_proposed_folders":
-      return userId ? getProposalsWithRulesPg(userId) : getProposalsWithRules();
+      return getProposalsWithRulesPg(userId);
     case "get_folder_rule":
-      return userId ? getFolderRulePg(userId, num(input.id)) : getFolderRule(num(input.id));
+      return getFolderRulePg(userId, num(input.id));
     case "list_audit_findings": {
       const kind = input.kind ? (str(input.kind) as AuditFindingKind) : undefined;
-      return userId ? listAuditFindingsPg(userId, kind) : listAuditFindings(kind);
+      return listAuditFindingsPg(userId, kind);
     }
     case "query_senders": {
       const limit = input.limit ? num(input.limit) : 50;
-      const all = userId
-        ? await getSendersForProposalPg(userId, 1, 500)
-        : getSendersForProposal(1, 500);
+      const all = await getSendersForProposalPg(userId, 1, 500);
       const filtered = input.category
         ? all.filter((s) => s.category === str(input.category))
         : all;
@@ -336,16 +388,42 @@ export async function runReadTool(
     }
     case "recent_moves": {
       const limit = input.limit ? num(input.limit) : 30;
-      return userId ? listRecentMovesPg(userId, limit) : listRecentMoves(limit);
+      return listRecentMovesPg(userId, limit);
+    }
+    case "remember_about_user": {
+      const note = str(input.note).trim();
+      if (!note) return { ok: false, error: "empty note" };
+      const existing = (await listMemoriesPg(userId, { kind: "soul", limit: 1 })) as Array<{
+        id: number;
+        content: string;
+      }>;
+      const prev = existing[0];
+      const prevLines = prev
+        ? prev.content
+            .split("\n")
+            .map((s) => s.replace(/^[-•]\s*/, "").trim())
+            .filter(Boolean)
+        : [];
+      if (prevLines.some((l) => l.toLowerCase() === note.toLowerCase())) {
+        return { ok: true, memory_id: prev!.id, unchanged: true };
+      }
+      const merged = [...prevLines, note].map((l) => `- ${l}`).join("\n");
+      const newId = await writeMemoryPg(userId, {
+        kind: "soul",
+        key: "soul",
+        content: merged,
+        source: "user_decision",
+      });
+      if (prev) await supersedeMemoryPg(userId, prev.id, newId);
+      return { ok: true, memory_id: newId };
     }
     case "save_onboarding_answer": {
-      const memo = {
-        kind: "user_pref" as const,
+      const id = await writeMemoryPg(userId, {
+        kind: "user_pref",
         key: `onboarding:${str(input.key)}`,
         content: str(input.answer),
-        source: "user_decision" as const,
-      };
-      const id = userId ? await writeMemoryPg(userId, memo) : writeMemory(memo);
+        source: "user_decision",
+      });
       return { ok: true, memory_id: id };
     }
     case "list_memories": {
@@ -353,9 +431,7 @@ export async function runReadTool(
         kind: input.kind ? str(input.kind) : undefined,
         limit: input.limit ? num(input.limit) : 50,
       };
-      return userId
-        ? listMemoriesPg(userId, filter)
-        : listMemories({ kind: filter.kind as never, limit: filter.limit });
+      return listMemoriesPg(userId, filter);
     }
     default:
       throw new Error(`unknown read tool: ${name}`);
@@ -369,7 +445,7 @@ export interface MutationPreview {
 
 /** Build the confirm-card payload for a mutating tool. Performs NO writes. */
 export async function previewMutation(
-  userId: string | null,
+  userId: string,
   name: string,
   input: Input,
 ): Promise<MutationPreview> {
@@ -379,9 +455,7 @@ export async function previewMutation(
     case "set_proposed_folder_status":
       return { summary: `Set proposed folder #${num(input.id)} status → "${str(input.status)}".` };
     case "set_rule_status": {
-      const rule = userId
-        ? await getFolderRulePg(userId, num(input.id))
-        : getFolderRule(num(input.id));
+      const rule = await getFolderRulePg(userId, num(input.id));
       return {
         summary: `Set rule #${num(input.id)} status → "${str(input.status)}".`,
         details: rule,
@@ -415,54 +489,47 @@ export async function previewMutation(
 
 /** Execute a mutating tool (only call after user confirmation). */
 export async function executeMutation(
-  userId: string | null,
+  userId: string,
   name: string,
   input: Input,
 ): Promise<unknown> {
   switch (name) {
     case "rename_proposed_folder":
-      if (userId) await updateProposedFolderPathPg(userId, num(input.id), str(input.new_path));
-      else updateProposedFolderPath(num(input.id), str(input.new_path));
+      await updateProposedFolderPathPg(userId, num(input.id), str(input.new_path));
       return { ok: true };
     case "set_proposed_folder_status": {
       const status = str(input.status) as ProposedFolderStatus;
-      if (userId) await setProposedFolderStatusPg(userId, num(input.id), status);
-      else setProposedFolderStatus(num(input.id), status);
+      await setProposedFolderStatusPg(userId, num(input.id), status);
       return { ok: true };
     }
     case "set_rule_status": {
       const status = str(input.status) as FolderRuleStatus;
-      if (userId) await setFolderRuleStatusPg(userId, num(input.id), status);
-      else setFolderRuleStatus(num(input.id), status);
+      await setFolderRuleStatusPg(userId, num(input.id), status);
       return { ok: true };
     }
     case "update_rule_match": {
       const target = input.target_folder != null ? str(input.target_folder) : null;
-      if (userId) await updateFolderRuleMatchPg(userId, num(input.id), str(input.match_value), target);
-      else updateFolderRuleMatch(num(input.id), str(input.match_value), target);
+      await updateFolderRuleMatchPg(userId, num(input.id), str(input.match_value), target);
       return { ok: true };
     }
     case "apply_rule":
       return applyRule(userId, num(input.ruleId), input.makeRule !== false);
     case "dismiss_audit_finding":
-      if (userId) await dismissAuditFindingPg(userId, num(input.id));
-      else dismissAuditFinding(num(input.id));
+      await dismissAuditFindingPg(userId, num(input.id));
       return { ok: true };
     case "set_audit_override": {
       const kind = str(input.kind) as AuditFindingKind;
       const decision = str(input.decision) as "include" | "exclude" | "agree";
-      if (userId) await setMessageOverridePg(userId, str(input.message_id), kind, decision);
-      else setMessageOverride(str(input.message_id), kind, decision);
+      await setMessageOverridePg(userId, str(input.message_id), kind, decision);
       return { ok: true };
     }
     case "write_memory": {
-      const memo = {
-        kind: "user_pref" as const,
+      const id = await writeMemoryPg(userId, {
+        kind: "user_pref",
         key: input.key != null ? str(input.key) : null,
         content: str(input.content),
-        source: "user_decision" as const,
-      };
-      const id = userId ? await writeMemoryPg(userId, memo) : writeMemory(memo);
+        source: "user_decision",
+      });
       return { ok: true, memory_id: id };
     }
     default:
