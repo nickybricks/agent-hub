@@ -26,6 +26,7 @@ import {
   insertProposedFoldersPg,
   insertFolderRulePg,
   getProposedFolderByPathPg,
+  clearPendingProposalsPg,
 } from "./analyzer-db-pg";
 import { previewRule, applyRule } from "./apply-rule";
 
@@ -340,6 +341,13 @@ export const TOOL_SPECS: ToolSpec[] = [
     },
   },
   {
+    name: "clear_pending_proposals",
+    kind: "mutate",
+    description:
+      "Bulk-delete every currently pending (un-accepted) proposed folder and its proposed LLM rules. Accepted and already-created folders are KEPT — only `proposed` rows are removed. Use when the user wants a clean slate on the Proposals tab before generating or hand-crafting a new taxonomy. Requires confirmation.",
+    schema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
     name: "trigger_propose_structure",
     kind: "mutate",
     description:
@@ -537,6 +545,15 @@ export async function previewMutation(
       };
     case "write_memory":
       return { summary: `Save memory: "${str(input.content)}"${input.key ? ` [key=${str(input.key)}]` : ""}.` };
+    case "clear_pending_proposals": {
+      const all = await getProposalsWithRulesPg(userId);
+      const pending = all.filter((p) => p.folder.status === "proposed");
+      const ruleCount = pending.reduce((n, p) => n + p.rules.length, 0);
+      return {
+        summary: `Delete ${pending.length} pending proposal(s) and ${ruleCount} proposed rule(s). Accepted/created folders are kept.`,
+        details: { folders: pending.map((p) => p.folder.path) },
+      };
+    }
     case "trigger_propose_structure":
       return {
         summary:
@@ -603,6 +620,10 @@ export async function executeMutation(
         source: "user_decision",
       });
       return { ok: true, memory_id: id };
+    }
+    case "clear_pending_proposals": {
+      await clearPendingProposalsPg(userId);
+      return { ok: true };
     }
     case "trigger_propose_structure": {
       const { inngest } = await import("@/inngest/client");
