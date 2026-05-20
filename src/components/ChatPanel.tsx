@@ -71,6 +71,13 @@ function normalizeAskOptions(raw: unknown): AskOption[] {
   return out;
 }
 
+// "1:07" / "0:42" — elapsed seconds → m:ss, for the pipeline loading view.
+function formatElapsed(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
 // Assistant replies are markdown but we want them to read at full foreground
 // weight (the default `prose` plugin colour is a muted grey). Skip the prose
 // plugin entirely — give the wrapper an explicit `text-foreground` and
@@ -116,6 +123,11 @@ export default function ChatPanel() {
     totalSenders?: number;
     error?: string;
   } | null>(null);
+  // Elapsed-time counter that ticks while the pipeline is running. Anchored
+  // on the FIRST tick after pipeline becomes non-null so reloads don't reset
+  // it (anchor lives in a ref since we set it inside the timer effect).
+  const pipelineStartedAt = useRef<number | null>(null);
+  const [pipelineElapsed, setPipelineElapsed] = useState(0);
   const [persona, setPersona] = useState<string | null>(null);
   const [personaEdit, setPersonaEdit] = useState("");
   const personaFetched = useRef(false);
@@ -284,6 +296,25 @@ export default function ChatPanel() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pipeline?.phase, threadId]);
+
+  // Elapsed-time counter. Anchors on the first tick after pipeline appears,
+  // resets when pipeline clears or finishes — so minutes-long waits show
+  // movement instead of a frozen status line.
+  useEffect(() => {
+    if (!pipeline || pipeline.phase === "done" || pipeline.phase === "error") {
+      pipelineStartedAt.current = null;
+      setPipelineElapsed(0);
+      return;
+    }
+    if (pipelineStartedAt.current == null) pipelineStartedAt.current = Date.now();
+    setPipelineElapsed(Math.floor((Date.now() - pipelineStartedAt.current) / 1000));
+    const id = setInterval(() => {
+      if (pipelineStartedAt.current != null) {
+        setPipelineElapsed(Math.floor((Date.now() - pipelineStartedAt.current) / 1000));
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [pipeline?.phase]);
 
   function resetLive() {
     setLiveText("");
@@ -558,28 +589,64 @@ export default function ChatPanel() {
               </div>
             ) : (
               <>
-                <div className="flex items-center gap-2 font-medium">
-                  <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-sky-500" />
-                  {pipeline.phase === "scanning"
-                    ? "Scanning your mailbox…"
-                    : pipeline.phase === "classifying"
-                      ? "Classifying senders…"
-                      : pipeline.phase === "persona_ready"
-                        ? "Building your profile…"
-                        : "Creating your folder proposals…"}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 font-medium">
+                    <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-sky-500" />
+                    {pipeline.phase === "scanning"
+                      ? "Scanning your mailbox"
+                      : pipeline.phase === "classifying"
+                        ? "Classifying senders"
+                        : pipeline.phase === "persona_ready"
+                          ? "Drafting your profile"
+                          : "Designing your folder structure"}
+                    <span className="text-xs font-normal text-muted">
+                      · {formatElapsed(pipelineElapsed)}
+                    </span>
+                  </div>
                 </div>
-                <div className="text-xs text-muted">
-                  {pipeline.phase === "scanning" &&
-                    `${(pipeline.scanned ?? 0).toLocaleString()} messages so far`}
-                  {pipeline.phase === "classifying" &&
-                    `${(pipeline.classified ?? 0).toLocaleString()}${
-                      pipeline.totalSenders
-                        ? ` / ${pipeline.totalSenders.toLocaleString()}`
-                        : ""
-                    } senders`}
-                  {(pipeline.phase === "persona_ready" ||
-                    pipeline.phase === "proposing") &&
-                    "This can take a few minutes on a large mailbox — you can keep this open."}
+                <div className="text-xs leading-relaxed text-muted">
+                  {pipeline.phase === "scanning" && (
+                    <>
+                      Reading every message header into your private store.{" "}
+                      <span className="text-foreground">
+                        {(pipeline.scanned ?? 0).toLocaleString()} messages so far.
+                      </span>{" "}
+                      Usually under a minute on a small mailbox; several on a big one.
+                    </>
+                  )}
+                  {pipeline.phase === "classifying" && (
+                    <>
+                      Tagging each sender (newsletter / transactional / personal / …) with a
+                      cheap fast model.{" "}
+                      <span className="text-foreground">
+                        {(pipeline.classified ?? 0).toLocaleString()}
+                        {pipeline.totalSenders
+                          ? ` / ${pipeline.totalSenders.toLocaleString()}`
+                          : ""}{" "}
+                        senders done.
+                      </span>{" "}
+                      ~5 senders/sec.
+                    </>
+                  )}
+                  {pipeline.phase === "persona_ready" && (
+                    <>
+                      Claude is reading your{" "}
+                      <span className="text-foreground">
+                        {(pipeline.classified ?? pipeline.totalSenders ?? 0).toLocaleString()}{" "}
+                        classified senders
+                      </span>{" "}
+                      and writing a one-paragraph profile of you. Usually 5–30 seconds.
+                    </>
+                  )}
+                  {pipeline.phase === "proposing" && (
+                    <>
+                      Claude Sonnet is designing a folder taxonomy from your{" "}
+                      <span className="text-foreground">
+                        {(pipeline.totalSenders ?? 0).toLocaleString()} senders
+                      </span>
+                      . One long inference call — usually 1–3 minutes. Keep the tab open.
+                    </>
+                  )}
                 </div>
               </>
             )}

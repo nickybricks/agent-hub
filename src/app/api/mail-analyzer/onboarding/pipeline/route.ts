@@ -53,17 +53,28 @@ export async function GET() {
   // Classification complete.
   const profile = await listMemoriesPg(userId, { kind: "user_profile", limit: 1 });
   if (profile.length === 0) {
-    return NextResponse.json({ phase: "persona_ready", scanned, classified });
+    return NextResponse.json({
+      phase: "persona_ready",
+      scanned,
+      classified,
+      totalSenders,
+    });
   }
 
   const proposals = await getProposalsWithRulesPg(userId);
   if (proposals.length === 0) {
-    return NextResponse.json({ phase: "proposing", scanned, classified });
+    return NextResponse.json({
+      phase: "proposing",
+      scanned,
+      classified,
+      totalSenders,
+    });
   }
   return NextResponse.json({
     phase: "done",
     scanned,
     classified,
+    totalSenders,
     proposals: proposals.length,
   });
 }
