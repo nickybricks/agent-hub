@@ -138,7 +138,7 @@ export const TOOL_SPECS: ToolSpec[] = [
         key: {
           type: "string",
           description:
-            "stable slug for the question, e.g. 'mailbox_type' | 'folder_style' | 'cleanup_aggressiveness' | 'occupation' | 'sacred'",
+            "stable slug for the question: 'mailbox_type' | 'folder_style' | 'cleanup_aggressiveness' | 'sacred'",
         },
         answer: { type: "string", description: "the user's answer, verbatim or lightly normalised" },
       },

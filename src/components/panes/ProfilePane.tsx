@@ -14,6 +14,7 @@ interface Memory {
 
 interface ProfileData {
   persona: Memory | null;
+  soul: Memory | null;
   prefs: Memory[];
   memories: Memory[];
   activity: Memory[];
@@ -34,7 +35,9 @@ export default function ProfilePane({ active }: { active: boolean }) {
   const [data, setData] = useState<ProfileData | null>(null);
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState("");
+  const [soulDraft, setSoulDraft] = useState("");
   const [saving, setSaving] = useState(false);
+  const [savingSoul, setSavingSoul] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showMemories, setShowMemories] = useState(false);
   const [showActivity, setShowActivity] = useState(false);
@@ -59,10 +62,30 @@ export default function ProfilePane({ active }: { active: boolean }) {
       const d: ProfileData = await fetch("/api/mail-analyzer/profile").then((r) => r.json());
       setData(d);
       setDraft(d.persona?.content ?? "");
+      setSoulDraft(d.soul?.content ?? "");
     } catch {
       setError("Couldn’t load your profile.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function saveSoul() {
+    if (savingSoul) return;
+    setSavingSoul(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/mail-analyzer/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ soul: soulDraft.trim() }),
+      });
+      if (!res.ok) throw new Error();
+      await load();
+    } catch {
+      setError("Save failed. Try again.");
+    } finally {
+      setSavingSoul(false);
     }
   }
 
@@ -100,10 +123,12 @@ export default function ProfilePane({ active }: { active: boolean }) {
   }
 
   const persona = data?.persona ?? null;
+  const soul = data?.soul ?? null;
   const prefs = data?.prefs ?? [];
   const memories = data?.memories ?? [];
   const activity = data?.activity ?? [];
   const dirty = draft.trim() !== (persona?.content ?? "").trim();
+  const soulDirty = soulDraft.trim() !== (soul?.content ?? "").trim();
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 px-8 py-10">
@@ -158,6 +183,32 @@ export default function ProfilePane({ active }: { active: boolean }) {
             and answer a few questions in the chat to get started.
           </p>
         )}
+      </section>
+
+      {/* About you (soul) */}
+      <section className="card flex flex-col gap-3 p-5">
+        <div>
+          <h2 className="text-sm font-semibold tracking-tight">About you</h2>
+          <p className="text-xs text-muted">
+            What I know about you personally — your name, what to call me, things you’ve shared
+            in chat. The bot also adds to this as you talk; edit or clear it whenever.
+          </p>
+        </div>
+        <textarea
+          value={soulDraft}
+          onChange={(e) => setSoulDraft(e.target.value)}
+          rows={5}
+          className="w-full rounded-md border border-input bg-background p-3 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-ring"
+          placeholder="Nothing yet — anything you tell the bot about yourself in chat will land here."
+        />
+        <div className="flex items-center gap-3">
+          <Button onClick={saveSoul} disabled={!soulDirty || savingSoul}>
+            {savingSoul ? "Saving…" : "Save"}
+          </Button>
+          {soulDirty && !savingSoul && (
+            <span className="text-xs text-muted">Unsaved changes</span>
+          )}
+        </div>
       </section>
 
       {/* Questionnaire answers */}
