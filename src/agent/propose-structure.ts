@@ -11,8 +11,6 @@ import {
   getMailboxTotalsPg,
   insertProposedFoldersPg,
   insertFolderRulePg,
-  setProposedFolderStatusPg,
-  getProposedFolderByPathPg,
   clearPendingProposalsPg,
   writeMemoryPg,
   listMemoriesPg,
@@ -105,25 +103,39 @@ class FolderStreamParser {
   }
 }
 
-const SYSTEM_PROMPT = `You are designing a folder structure for an email account.
+const SYSTEM_PROMPT_BASE = `You are designing a folder structure for an email account.
 The user wants a small, sensible taxonomy — 5 to 12 top-level folders, with optional one-level nesting for high-volume categories (e.g. "Newsletters/Tech").
 
-The user's existing folders are provided as context. STRONGLY prefer reusing an existing folder verbatim (exact same path/name) when one already covers a category — do not coin a synonym ("Housing" when "Real Estate" exists, "Parcels" when "Shopping/Orders" exists). Only rename or split when the existing name is genuinely unfit. This keeps re-runs stable and avoids near-duplicate folders. Do NOT touch system folders (INBOX, Sent, Drafts, Trash, Spam, Junk, Archive).
+The user's existing folders are provided as context. Do NOT touch system folders (INBOX, Sent, Drafts, Trash, Spam, Junk, Archive).
 
 Group senders together; do not propose one folder per sender. For each folder, list the rules that route mail to it (sender_domain when many senders share a domain, sender_email for one-off important senders).
 Skip generic categories like "Other" or "Misc". Skip senders that should stay in Inbox (personal mail, real humans).
 Output only folders for non-Inbox routing.`;
+
+const STRATEGY_GUIDANCE: Record<string, string> = {
+  keep_augment:
+    "The user wants to KEEP their existing folder structure and just fill gaps. Reuse existing folder paths verbatim (exact same name) wherever one already fits a category. Only add new folders for categories the existing structure doesn't cover. Do not rename or split existing folders.",
+  simplify:
+    "The user wants to SIMPLIFY their mailbox into a handful of clear folders. Collapse near-duplicates from the existing structure into broader categories. Aim for the lower end of 5–12 folders. You may reuse an existing folder name when it cleanly fits a consolidated category, but you are NOT required to keep them.",
+  fresh_start:
+    "The user wants a FRESH structure designed from scratch. Ignore the existing folder names — they came here precisely to replace them. Design the taxonomy purely from the sender data and the user's persona. Do not feel obligated to reuse existing folder names; coin clearer ones when warranted.",
+};
+
+function buildSystemPrompt(strategy: string | null): string {
+  const guidance = strategy ? STRATEGY_GUIDANCE[strategy] : null;
+  return guidance ? `${SYSTEM_PROMPT_BASE}\n\nFolder strategy chosen by the user: ${guidance}` : SYSTEM_PROMPT_BASE;
+}
 
 // Default to Sonnet 4.6 — folder structure design benefits from a stronger reasoner
 // than the Haiku used for per-sender classification.
 const DEFAULT_PROVIDER = "anthropic";
 const DEFAULT_MODEL = "claude-sonnet-4-6";
 
-function defaultLLMConfig(): LLMConfig {
+function defaultLLMConfig(strategy: string | null): LLMConfig {
   return {
     provider: DEFAULT_PROVIDER,
     model: DEFAULT_MODEL,
-    systemPrompt: withGuardrail(SYSTEM_PROMPT),
+    systemPrompt: withGuardrail(buildSystemPrompt(strategy)),
   };
 }
 
@@ -135,7 +147,15 @@ export async function runProposeStructure(
   userId: string,
   opts: { provider?: string; model?: string; minMessages?: number; limit?: number } = {},
 ) {
-  const config = defaultLLMConfig();
+  // User's chosen folder strategy from onboarding (keep_augment | simplify |
+  // fresh_start). Shapes the system prompt; null = no preference saved yet.
+  const strategyPrefs = await listMemoriesPg(userId, {
+    kind: "user_pref",
+    key: "onboarding:folder_strategy",
+    limit: 1,
+  });
+  const folderStrategy = strategyPrefs[0]?.content?.trim() || null;
+  const config = defaultLLMConfig(folderStrategy);
   if (opts.provider) config.provider = opts.provider as LLMConfig["provider"];
   if (opts.model) config.model = opts.model;
 
@@ -152,7 +172,6 @@ export async function runProposeStructure(
   // Existing folders with message counts + top senders per folder.
   const folderRows = await getProposalFolderRowsPg(userId);
   const existingMailboxes = folderRows.map((r) => r.name);
-  const existingLower = new Set(existingMailboxes.map((n) => n.toLowerCase()));
 
   const folderContext = (
     await Promise.all(
@@ -247,18 +266,10 @@ Design the folder structure. You have the full picture: existing folders, where 
 
   const parser = new FolderStreamParser();
   const accepted: ProposedFolder[] = [];
-  let reused = 0;
   let ruleCount = 0;
 
   const handleFolder = async (folder: ProposedFolder) => {
     await insertProposedFoldersPg(userId, [{ path: folder.path, rationale: folder.rationale }]);
-    if (existingLower.has(folder.path.toLowerCase())) {
-      const row = await getProposedFolderByPathPg(userId, folder.path);
-      if (row && row.status === "proposed") {
-        await setProposedFolderStatusPg(userId, row.id, "created");
-        reused++;
-      }
-    }
     for (const r of folder.rules) {
       await insertFolderRulePg(userId, {
         match_type: r.match_type,
@@ -299,13 +310,13 @@ Design the folder structure. You have the full picture: existing folders, where 
   }
 
   console.log(
-    `Inserted ${accepted.length} proposed folders (${reused} already exist) and ${ruleCount} rules. Review at /mail-analyzer/proposals.`,
+    `Inserted ${accepted.length} proposed folders and ${ruleCount} rules. Review at /mail-analyzer/proposals.`,
   );
 
   await writeMemoryPg(userId, {
     kind: "proposal_run",
     source: "llm",
-    content: `Proposed ${accepted.length} folders (${reused} already existed) and ${ruleCount} routing rules using ${config.provider}/${config.model}. Considered ${senders.length} senders and ${existingMailboxes.length} existing mailboxes.`,
+    content: `Proposed ${accepted.length} folders and ${ruleCount} routing rules using ${config.provider}/${config.model}. Considered ${senders.length} senders and ${existingMailboxes.length} existing mailboxes. Strategy: ${folderStrategy ?? "(none saved)"}.`,
   });
   for (const f of accepted) {
     await writeMemoryPg(userId, {

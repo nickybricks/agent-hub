@@ -73,7 +73,7 @@ Fixed order:
 
 3. **Questionnaire — three button questions.** Ask these one at a time, in order, ALWAYS via \`ask_user\`. Each option must carry a one-line \`hint\` and you should mark one option \`recommended: true\` with a hint that starts with the reason:
    a. \`mailbox_type\` — "What kind of mailbox is this?" e.g. Personal / Work / Mixed (recommend Mixed for first runs: *"covers both — you can sharpen later"*). \`save_onboarding_answer key: mailbox_type\`.
-   b. \`folder_style\` — "How do you like things organised?" e.g. A few broad folders / Many specific folders / Minimal — mostly search (recommend "A few broad folders": *"easier to keep tidy than many tiny ones"*). \`save_onboarding_answer key: folder_style\`.
+   b. \`folder_strategy\` — Use the real mailbox snapshot from STATE (existing folder count + sample names) to render this question in plain prose, e.g. *"You have 47 folders right now (incl. 🚀 Projekte, 📦 Bestellungen…). Want me to keep what's there and just fill gaps, simplify down to a handful, or design something fresh and ignore the current structure?"*. Options: *"Keep & augment"* (recommend if their existing count is modest: *"build on what's working, just fill gaps"*), *"Simplify"* (*"collapse down to a handful of clear folders"*), *"Fresh start"* (*"design from scratch; ignore the current structure"*). If STATE shows no snapshot yet, ask the question more abstractly (no counts) — never invent numbers. \`save_onboarding_answer key: folder_strategy\`.
    c. \`cleanup_aggressiveness\` — "How aggressively should I tidy up?" e.g. Conservative / Balanced / Aggressive (recommend Balanced: *"moves obvious stuff, asks before anything fuzzy"*). \`save_onboarding_answer key: cleanup_aggressiveness\`.
 
 4. **Sacred — generic buttons.** \`ask_user\` for \`sacred\` with generic options + hints, e.g. *"Nothing — you decide"* (recommend: *"start clean; we'll add exceptions in chat once I know your mailbox"*), *"My personal & family contacts"*, *"Specific folders — I'll name them"*. Then \`save_onboarding_answer key: sacred\`.
@@ -127,9 +127,11 @@ export async function onboardingState(userId: string): Promise<{
   connected: boolean;
   answered: string[];
   hasSoul: boolean;
+  folderSnapshot: { count: number; samples: string[] } | null;
 }> {
   const profile = await listMemoriesPg(userId, { kind: "user_profile", limit: 1 });
-  if (profile.length > 0) return { active: false, connected: true, answered: [], hasSoul: true };
+  if (profile.length > 0)
+    return { active: false, connected: true, answered: [], hasSoul: true, folderSnapshot: null };
 
   const prefs = await listMemoriesPg(userId, { kind: "user_pref", limit: 50 });
   const answered = prefs
@@ -150,7 +152,71 @@ export async function onboardingState(userId: string): Promise<{
   } catch {
     connected = false;
   }
-  return { active: true, connected, answered, hasSoul };
+
+  // Fetch the real folder snapshot once after connection so the bot can render
+  // the `folder_strategy` question with the user's actual folder count + names.
+  // Cached as a `system` memory; refreshed if the cache is missing.
+  let folderSnapshot: { count: number; samples: string[] } | null = null;
+  if (connected && !answered.includes("folder_strategy")) {
+    folderSnapshot = await loadOrFetchFolderSnapshot(userId);
+  }
+
+  return { active: true, connected, answered, hasSoul, folderSnapshot };
+}
+
+const SYSTEM_FOLDER_NAMES = new Set([
+  "INBOX",
+  "SENT",
+  "DRAFTS",
+  "TRASH",
+  "SPAM",
+  "JUNK",
+  "ARCHIVE",
+  "OUTBOX",
+  "ALL MAIL",
+  "STARRED",
+  "IMPORTANT",
+  "CHATS",
+]);
+
+async function loadOrFetchFolderSnapshot(
+  userId: string,
+): Promise<{ count: number; samples: string[] } | null> {
+  const cached = await listMemoriesPg(userId, { kind: "system", key: "mailbox_folder_snapshot", limit: 1 });
+  if (cached[0]?.content) {
+    try {
+      return JSON.parse(cached[0].content) as { count: number; samples: string[] };
+    } catch {
+      // fall through to refetch
+    }
+  }
+  try {
+    const { createMailProvider } = await import("./mail-provider");
+    const provider = await createMailProvider(userId);
+    await provider.open();
+    try {
+      const boxes = await provider.listMailboxes();
+      const userFolders = boxes.filter(
+        (b) => !SYSTEM_FOLDER_NAMES.has(b.name.toUpperCase()) && !b.name.startsWith("[Gmail]") && !b.name.startsWith("CATEGORY_"),
+      );
+      const samples = [...userFolders]
+        .sort((a, b) => b.messageCount - a.messageCount)
+        .slice(0, 8)
+        .map((b) => b.name);
+      const snap = { count: userFolders.length, samples };
+      await writeMemoryPg(userId, {
+        kind: "system",
+        key: "mailbox_folder_snapshot",
+        content: JSON.stringify(snap),
+        source: "self",
+      });
+      return snap;
+    } finally {
+      await provider.close().catch(() => {});
+    }
+  } catch {
+    return null;
+  }
 }
 
 export function persistMemory(userId: string, content: string, key: string | null) {
@@ -449,9 +515,12 @@ export async function* streamLoop(
   // model always resumes from the first incomplete step.
   const onb = await onboardingState(userId);
   if (onb.active) {
+    const snapshot = onb.folderSnapshot
+      ? ` mailbox folder snapshot: ${onb.folderSnapshot.count} user-created folders, sample names: ${onb.folderSnapshot.samples.map((n) => `"${n}"`).join(", ") || "(none)"}.`
+      : "";
     const state = `STATE — mailbox connected: ${onb.connected ? "yes" : "NO"}; soul memory (name + any volunteered context): ${
       onb.hasSoul ? "saved" : "NOT yet"
-    }; questionnaire answers saved: ${onb.answered.length ? onb.answered.join(", ") : "none"}.`;
+    }; questionnaire answers saved: ${onb.answered.length ? onb.answered.join(", ") : "none"}.${snapshot}`;
     config.systemPrompt = withGuardrail(`${ONBOARDING_SYSTEM_PROMPT}\n\n${state}`);
   }
 
