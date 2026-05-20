@@ -488,6 +488,11 @@ export async function writeMemoryPg(userId: string, input: AgentMemoryInputPg): 
   return Number((rows[0] as { id: number }).id);
 }
 
+export async function deleteMemoriesByKindPg(userId: string, kind: string): Promise<void> {
+  const db = getDrizzleDb();
+  await db.execute(sql`DELETE FROM agent_memory WHERE kind = ${kind} AND user_id = ${userId}`);
+}
+
 export async function insertFolderRulePg(
   userId: string,
   rule: {

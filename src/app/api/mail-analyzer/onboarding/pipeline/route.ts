@@ -62,12 +62,18 @@ export async function GET() {
   }
 
   const proposals = await getProposalsWithRulesPg(userId);
-  if (proposals.length === 0) {
+  // The proposal job streams folders one-by-one and only writes the
+  // `proposal_run` memory at the very end. Until that memory exists we stay
+  // in the `proposing` phase even when partial folders are already inserted,
+  // so the UI keeps showing the loading view + the rising live count.
+  const proposalRun = await listMemoriesPg(userId, { kind: "proposal_run", limit: 1 });
+  if (proposalRun.length === 0) {
     return NextResponse.json({
       phase: "proposing",
       scanned,
       classified,
       totalSenders,
+      proposals: proposals.length,
     });
   }
   return NextResponse.json({

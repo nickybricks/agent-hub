@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { Settings, User } from "lucide-react";
 import ChatPanel from "@/components/ChatPanel";
 import SettingsModal from "@/components/SettingsModal";
-import { DataSyncProvider } from "@/components/DataSync";
+import { DataSyncProvider, useProposingCount } from "@/components/DataSync";
 import HomePane from "@/components/panes/HomePane";
 import ProposalsPane from "@/components/panes/ProposalsPane";
 import AuditPane from "@/components/panes/AuditPane";
@@ -114,23 +114,7 @@ export default function AppShell() {
         <div ref={rowRef} className="flex min-h-0 flex-1">
           {/* Left: dashboard */}
           <section className="flex min-w-0 flex-1 flex-col">
-            <nav className="shrink-0 overflow-x-auto border-b border-border py-3 [-ms-overflow-style:none] [scrollbar-width:none]">
-              <div className="mx-auto flex w-full max-w-5xl gap-2 px-8">
-                {TABS.map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => select(t)}
-                    className={`shrink-0 whitespace-nowrap rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-                      tab === t
-                        ? "bg-[var(--brand)] text-white"
-                        : "border border-border text-muted hover:text-foreground"
-                    }`}
-                  >
-                    {t}
-                  </button>
-                ))}
-              </div>
-            </nav>
+            <TabNav tab={tab} onSelect={select} />
             <div className="flex-1 overflow-y-auto">
               {TABS.filter((t) => mounted.has(t)).map((t) => (
                 <div key={t} className={tab === t ? "" : "hidden"}>
@@ -162,5 +146,43 @@ export default function AppShell() {
       </div>
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </DataSyncProvider>
+  );
+}
+
+function TabNav({ tab, onSelect }: { tab: Tab; onSelect: (t: Tab) => void }) {
+  const proposingCount = useProposingCount();
+  return (
+    <nav className="shrink-0 overflow-x-auto border-b border-border py-3 [-ms-overflow-style:none] [scrollbar-width:none]">
+      <div className="mx-auto flex w-full max-w-5xl gap-2 px-8">
+        {TABS.map((t) => {
+          const showBadge = t === "Proposals" && proposingCount !== null;
+          return (
+            <button
+              key={t}
+              onClick={() => onSelect(t)}
+              className={`shrink-0 whitespace-nowrap rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                tab === t
+                  ? "bg-[var(--brand)] text-white"
+                  : "border border-border text-muted hover:text-foreground"
+              }`}
+            >
+              {t}
+              {showBadge && (
+                <span
+                  className={`ml-1.5 inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-xs font-semibold ${
+                    tab === t
+                      ? "bg-white/25 text-white"
+                      : "bg-[var(--brand-soft)] text-[var(--brand)]"
+                  }`}
+                  title={`${proposingCount} folder${proposingCount === 1 ? "" : "s"} ready — still streaming`}
+                >
+                  {proposingCount}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </nav>
   );
 }

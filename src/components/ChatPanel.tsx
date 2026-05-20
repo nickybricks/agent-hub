@@ -5,7 +5,7 @@ import { ArrowUp, Mic, Square } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/Button";
-import { useDataBump } from "@/components/DataSync";
+import { useDataBump, useSetProposingCount } from "@/components/DataSync";
 
 interface ChatMsg {
   id: number;
@@ -121,6 +121,7 @@ export default function ChatPanel() {
     scanned?: number;
     classified?: number;
     totalSenders?: number;
+    proposals?: number;
     error?: string;
   } | null>(null);
   // Elapsed-time counter that ticks while the pipeline is running. Anchored
@@ -136,6 +137,17 @@ export default function ChatPanel() {
   const [cBusy, setCBusy] = useState(false);
 
   const bump = useDataBump();
+  const setProposingCount = useSetProposingCount();
+
+  // Publish live folder-count to the app shell so the Proposals tab can show a
+  // badge. Only meaningful during the `proposing` phase; cleared otherwise.
+  useEffect(() => {
+    if (pipeline?.phase === "proposing") {
+      setProposingCount(pipeline.proposals ?? 0);
+    } else {
+      setProposingCount(null);
+    }
+  }, [pipeline?.phase, pipeline?.proposals, setProposingCount]);
 
   const abortRef = useRef<AbortController | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -639,7 +651,18 @@ export default function ChatPanel() {
                       <span className="text-foreground">
                         {(pipeline.totalSenders ?? 0).toLocaleString()} senders
                       </span>
-                      . One long inference call — usually 1–3 minutes. Keep the tab open.
+                      .{" "}
+                      {(pipeline.proposals ?? 0) > 0 ? (
+                        <>
+                          <span className="text-foreground">
+                            {pipeline.proposals} folder
+                            {pipeline.proposals === 1 ? "" : "s"} ready so far
+                          </span>{" "}
+                          — watch them appear on the Proposals tab.
+                        </>
+                      ) : (
+                        <>Streaming results — folders will appear on the Proposals tab one by one. Usually 1–3 minutes.</>
+                      )}
                     </>
                   )}
                 </div>

@@ -1,12 +1,13 @@
 {
   "name": "mail-workflow",
-  "version": "0.34.4",
+  "version": "0.35.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "docs:check": "npx tsx scripts/check-spec-drift.ts",
     "agent:run": "npx tsx --env-file=.env.local src/agent/run.ts",
     "schedule:install": "bash scripts/install-schedule.sh",
     "schedule:uninstall": "bash scripts/uninstall-schedule.sh",

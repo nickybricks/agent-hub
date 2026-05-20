@@ -16,32 +16,94 @@ import {
   clearPendingProposalsPg,
   writeMemoryPg,
   listMemoriesPg,
+  deleteMemoriesByKindPg,
 } from "../lib/analyzer-db-pg";
 import { withGuardrail, wrapEmail } from "../lib/prompt-safety";
 
-const ProposalSchema = z.object({
-  folders: z
+const FolderSchema = z.object({
+  path: z
+    .string()
+    .describe(
+      "Folder path. Use '/' for nesting (e.g. 'Newsletters/Tech'). Do not start with '/'. Avoid system folder names (INBOX, Sent, Drafts, Trash, Spam, Junk, Archive)."
+    ),
+  rationale: z.string().describe("One short sentence explaining what belongs here."),
+  rules: z
     .array(
       z.object({
-        path: z
-          .string()
-          .describe(
-            "Folder path. Use '/' for nesting (e.g. 'Newsletters/Tech'). Do not start with '/'. Avoid system folder names (INBOX, Sent, Drafts, Trash, Spam, Junk, Archive)."
-          ),
-        rationale: z.string().describe("One short sentence explaining what belongs here."),
-        rules: z
-          .array(
-            z.object({
-              match_type: z.enum(["sender_email", "sender_domain"]),
-              match_value: z.string().describe("Exact sender email OR exact domain like 'github.com'"),
-              confidence: z.number().min(0).max(1),
-            })
-          )
-          .describe("Routing rules that send mail to this folder. Prefer domain rules when many senders share a domain."),
+        match_type: z.enum(["sender_email", "sender_domain"]),
+        match_value: z.string().describe("Exact sender email OR exact domain like 'github.com'"),
+        confidence: z.number().min(0).max(1),
       })
     )
-    .min(1),
+    .describe(
+      "Routing rules that send mail to this folder. Prefer domain rules when many senders share a domain."
+    ),
 });
+
+const ProposalSchema = z.object({
+  folders: z.array(FolderSchema).min(1),
+});
+
+type ProposedFolder = z.infer<typeof FolderSchema>;
+
+// Streaming parser: feeds chunks of the tool-call args JSON and yields each
+// completed `folders[]` element (as a JSON substring) the moment its closing
+// `}` arrives. Strings are tracked so a `}` inside a string doesn't fool depth.
+class FolderStreamParser {
+  private buf = "";
+  private pos = 0;
+  private state: "before_array" | "in_array" = "before_array";
+  private depth = 0;
+  private folderStart = -1;
+  private inString = false;
+  private escape = false;
+
+  feed(chunk: string): string[] {
+    this.buf += chunk;
+    const out: string[] = [];
+    while (this.pos < this.buf.length) {
+      if (this.state === "before_array") {
+        const folderIdx = this.buf.indexOf('"folders"', this.pos);
+        if (folderIdx === -1) break; // wait for more bytes
+        const bracketIdx = this.buf.indexOf("[", folderIdx);
+        if (bracketIdx === -1) break; // wait for more bytes
+        this.pos = bracketIdx + 1;
+        this.state = "in_array";
+        continue;
+      }
+      const c = this.buf[this.pos];
+      if (this.inString) {
+        if (this.escape) this.escape = false;
+        else if (c === "\\") this.escape = true;
+        else if (c === '"') this.inString = false;
+        this.pos++;
+        continue;
+      }
+      if (c === '"') {
+        this.inString = true;
+        this.pos++;
+        continue;
+      }
+      if (c === "{") {
+        if (this.depth === 0) this.folderStart = this.pos;
+        this.depth++;
+        this.pos++;
+        continue;
+      }
+      if (c === "}") {
+        this.depth--;
+        this.pos++;
+        if (this.depth === 0 && this.folderStart !== -1) {
+          out.push(this.buf.slice(this.folderStart, this.pos));
+          this.folderStart = -1;
+        }
+        continue;
+      }
+      this.pos++;
+    }
+    return out;
+  }
+}
 
 const SYSTEM_PROMPT = `You are designing a folder structure for an email account.
 The user wants a small, sensible taxonomy — 5 to 12 top-level folders, with optional one-level nesting for high-volume categories (e.g. "Newsletters/Tech").
@@ -145,11 +207,26 @@ ${senders.map(renderSender).join("\n")}
 
 Design the folder structure. You have the full picture: existing folders, where mail currently lives, what categories dominate, and which senders matter most. Output strictly the schema.`;
 
+  // Replace any prior un-acted proposal BEFORE the stream starts so partial
+  // inserts from a previous (possibly mid-stream-aborted) run don't pile up.
+  // Also drop the prior `proposal_run` marker — the pipeline route uses it as
+  // the "streaming is finished" signal, and a stale marker would make the
+  // current proposing phase look already-done on the very first poll.
+  await clearPendingProposalsPg(userId);
+  await deleteMemoriesByKindPg(userId, "proposal_run");
+
   const llm = createLLM(config);
-  const structured = llm.withStructuredOutput(ProposalSchema, { name: "folder_proposal" });
-  const invokeProposal = traceable(
+  if (!llm.bindTools) {
+    throw new Error(`Provider ${config.provider} does not support bindTools — streaming requires it.`);
+  }
+  const modelWithTool = llm.bindTools(
+    [{ name: "folder_proposal", description: "Folder structure proposal", schema: ProposalSchema }],
+    { tool_choice: { type: "tool", name: "folder_proposal" } },
+  );
+
+  const runStream = traceable(
     async (messages: { system: string; user: string }) => {
-      return structured.invoke([
+      return modelWithTool.stream([
         new SystemMessage(messages.system),
         new HumanMessage(messages.user),
       ]);
@@ -162,54 +239,75 @@ Design the folder structure. You have the full picture: existing folders, where 
         model: config.model,
         sender_count: senders.length,
         existing_folder_count: existingMailboxes.length,
+        streaming: true,
       },
-    }
+    },
   );
-  const out = await invokeProposal({ system: config.systemPrompt, user: userPrompt });
+  const stream = await runStream({ system: config.systemPrompt, user: userPrompt });
 
-  // Replace any prior un-acted proposal so a re-run (e.g. profile rebuild)
-  // doesn't stack a second taxonomy on top of the first. Accepted/applied
-  // rules and folders are preserved.
-  await clearPendingProposalsPg(userId);
-
-  const folderInputs = out.folders.map((f) => ({ path: f.path, rationale: f.rationale }));
-  await insertProposedFoldersPg(userId, folderInputs);
-  // Mark folders that already exist as 'created' so the UI surfaces that.
+  const parser = new FolderStreamParser();
+  const accepted: ProposedFolder[] = [];
   let reused = 0;
-  for (const f of folderInputs) {
-    if (existingLower.has(f.path.toLowerCase())) {
-      const row = await getProposedFolderByPathPg(userId, f.path);
+  let ruleCount = 0;
+
+  const handleFolder = async (folder: ProposedFolder) => {
+    await insertProposedFoldersPg(userId, [{ path: folder.path, rationale: folder.rationale }]);
+    if (existingLower.has(folder.path.toLowerCase())) {
+      const row = await getProposedFolderByPathPg(userId, folder.path);
       if (row && row.status === "proposed") {
         await setProposedFolderStatusPg(userId, row.id, "created");
         reused++;
       }
     }
-  }
-  console.log(`Inserted ${folderInputs.length} proposed folders (${reused} already exist).`);
-
-  let ruleCount = 0;
-  for (const f of out.folders) {
-    for (const r of f.rules) {
+    for (const r of folder.rules) {
       await insertFolderRulePg(userId, {
         match_type: r.match_type,
         match_value: r.match_value,
         action: "route_to",
-        target_folder: f.path,
+        target_folder: folder.path,
         source: "llm_proposal",
         confidence: r.confidence,
         status: "proposed",
       });
       ruleCount++;
     }
+    accepted.push(folder);
+    console.log(
+      `  + ${folder.path} (${folder.rules.length} rule${folder.rules.length === 1 ? "" : "s"})`,
+    );
+  };
+
+  for await (const chunk of stream) {
+    for (const tc of chunk.tool_call_chunks ?? []) {
+      if (!tc.args) continue;
+      for (const folderJson of parser.feed(tc.args)) {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(folderJson);
+        } catch (e) {
+          console.warn(`Skipping unparseable folder fragment: ${(e as Error).message}`);
+          continue;
+        }
+        const result = FolderSchema.safeParse(parsed);
+        if (!result.success) {
+          console.warn(`Skipping folder failing schema: ${result.error.message}`);
+          continue;
+        }
+        await handleFolder(result.data);
+      }
+    }
   }
-  console.log(`Inserted ${ruleCount} proposed rules. Review at /mail-analyzer/proposals.`);
+
+  console.log(
+    `Inserted ${accepted.length} proposed folders (${reused} already exist) and ${ruleCount} rules. Review at /mail-analyzer/proposals.`,
+  );
 
   await writeMemoryPg(userId, {
     kind: "proposal_run",
     source: "llm",
-    content: `Proposed ${folderInputs.length} folders (${reused} already existed) and ${ruleCount} routing rules using ${config.provider}/${config.model}. Considered ${senders.length} senders and ${existingMailboxes.length} existing mailboxes.`,
+    content: `Proposed ${accepted.length} folders (${reused} already existed) and ${ruleCount} routing rules using ${config.provider}/${config.model}. Considered ${senders.length} senders and ${existingMailboxes.length} existing mailboxes.`,
   });
-  for (const f of out.folders) {
+  for (const f of accepted) {
     await writeMemoryPg(userId, {
       kind: "rule_rationale",
       key: f.path,
