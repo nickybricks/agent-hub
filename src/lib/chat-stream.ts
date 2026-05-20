@@ -12,7 +12,7 @@ export function chatStreamResponse(
   userId: string,
   threadId: number,
   signal: AbortSignal,
-  meta: { turn_kind: "message" | "confirm" },
+  meta: { turn_kind: "message" | "confirm"; prelude?: ChatEvent[] },
 ): Response {
   const encoder = new TextEncoder();
 
@@ -20,6 +20,8 @@ export function chatStreamResponse(
     async start(controller) {
       const send = (obj: unknown) =>
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+
+      for (const ev of meta.prelude ?? []) send(ev);
 
       const toolsUsed: string[] = [];
 

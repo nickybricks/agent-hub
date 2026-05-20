@@ -23,6 +23,9 @@ import {
   setMessageOverridePg,
   writeMemoryPg,
   supersedeMemoryPg,
+  insertProposedFoldersPg,
+  insertFolderRulePg,
+  getProposedFolderByPathPg,
 } from "./analyzer-db-pg";
 import { previewRule, applyRule } from "./apply-rule";
 
@@ -337,6 +340,58 @@ export const TOOL_SPECS: ToolSpec[] = [
     },
   },
   {
+    name: "trigger_propose_structure",
+    kind: "mutate",
+    description:
+      "Rebuild the folder-proposal taxonomy from scratch: fires the same proposal job onboarding uses. Streams new folders one-by-one into the Proposals tab over 1–3 minutes. Clears any currently pending (un-accepted) proposals first; accepted/rejected proposals are preserved. Requires confirmation. Use when the user asks to regenerate or rebuild proposals.",
+    schema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "add_proposed_folder",
+    kind: "mutate",
+    description:
+      "Add a single proposed folder with one or more sender-routing rules. Use when the user describes a specific folder they want (e.g. 'add a folder for invoices from these senders'). Requires confirmation. Inserts a `proposed` folder row plus its rules; rules land as `proposed` until the user accepts them on the Proposals tab.",
+    schema: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description: "folder path, e.g. 'Invoices' or 'Newsletters/Tech' (subfolders split on /)",
+        },
+        rationale: {
+          type: "string",
+          description: "one-sentence reason for this folder (shown on the Proposals tab)",
+        },
+        rules: {
+          type: "array",
+          description: "1+ sender rules that should route mail into this folder",
+          items: {
+            type: "object",
+            properties: {
+              match_type: {
+                type: "string",
+                enum: ["sender_email", "sender_domain"],
+                description: "match by full email address or by domain",
+              },
+              match_value: {
+                type: "string",
+                description: "the email or domain to match, lowercased",
+              },
+              confidence: {
+                type: "number",
+                description: "0..1 LLM-style confidence (optional)",
+              },
+            },
+            required: ["match_type", "match_value"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["path", "rules"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "write_memory",
     kind: "mutate",
     description:
@@ -482,6 +537,23 @@ export async function previewMutation(
       };
     case "write_memory":
       return { summary: `Save memory: "${str(input.content)}"${input.key ? ` [key=${str(input.key)}]` : ""}.` };
+    case "trigger_propose_structure":
+      return {
+        summary:
+          "Rebuild folder proposals from scratch. Clears any pending proposals, then streams a fresh taxonomy into the Proposals tab over the next 1–3 minutes.",
+      };
+    case "add_proposed_folder": {
+      const rules = Array.isArray(input.rules) ? (input.rules as Array<Record<string, unknown>>) : [];
+      const matches = rules
+        .map((r) => `${str(r.match_type)}=${str(r.match_value)}`)
+        .join(", ");
+      return {
+        summary: `Add proposed folder "${str(input.path)}" with ${rules.length} rule(s)${
+          matches ? ` (${matches})` : ""
+        }.`,
+        details: { path: str(input.path), rationale: input.rationale ?? null, rules },
+      };
+    }
     default:
       throw new Error(`unknown mutating tool: ${name}`);
   }
@@ -531,6 +603,39 @@ export async function executeMutation(
         source: "user_decision",
       });
       return { ok: true, memory_id: id };
+    }
+    case "trigger_propose_structure": {
+      const { inngest } = await import("@/inngest/client");
+      await inngest.send({ name: "mail/propose", data: { userId } });
+      return { ok: true, queued: true };
+    }
+    case "add_proposed_folder": {
+      const path = str(input.path).trim();
+      const rationale = input.rationale != null ? str(input.rationale) : null;
+      const rawRules = Array.isArray(input.rules) ? (input.rules as Array<Record<string, unknown>>) : [];
+      if (!path) throw new Error("path is required");
+      if (rawRules.length === 0) throw new Error("at least one rule is required");
+
+      await insertProposedFoldersPg(userId, [{ path, rationale }]);
+      const folder = await getProposedFolderByPathPg(userId, path);
+      const ruleIds: number[] = [];
+      for (const r of rawRules) {
+        const matchType = str(r.match_type) as "sender_email" | "sender_domain";
+        if (matchType !== "sender_email" && matchType !== "sender_domain") {
+          throw new Error(`invalid match_type: ${matchType}`);
+        }
+        const id = await insertFolderRulePg(userId, {
+          match_type: matchType,
+          match_value: str(r.match_value),
+          action: "route_to",
+          target_folder: path,
+          source: "llm_proposal",
+          confidence: r.confidence != null ? num(r.confidence) : null,
+          status: "proposed",
+        });
+        ruleIds.push(id);
+      }
+      return { ok: true, folder_id: folder?.id ?? null, rule_ids: ruleIds };
     }
     default:
       throw new Error(`unknown mutating tool: ${name}`);

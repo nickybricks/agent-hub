@@ -30,6 +30,7 @@ export async function POST(req: Request) {
 
   const input = JSON.parse(tc.tool_input) as Record<string, unknown>;
   const threadId = tc.thread_id;
+  let triggeredPropose = false;
 
   if (decision === "cancel") {
     await finishToolCall(userId, tc.id, "cancelled");
@@ -47,6 +48,7 @@ export async function POST(req: Request) {
   } else {
     try {
       const result = await executeMutation(userId, tc.tool_name, input);
+      if (tc.tool_name === "trigger_propose_structure") triggeredPropose = true;
       const json = JSON.stringify(result);
       await finishToolCall(userId, tc.id, "executed", json);
       await appendMessagePg(userId, {
@@ -72,5 +74,8 @@ export async function POST(req: Request) {
     }
   }
 
-  return chatStreamResponse(userId, threadId, req.signal, { turn_kind: "confirm" });
+  return chatStreamResponse(userId, threadId, req.signal, {
+    turn_kind: "confirm",
+    prelude: triggeredPropose ? [{ type: "pipeline" }] : undefined,
+  });
 }
