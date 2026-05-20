@@ -215,25 +215,20 @@ export default function ChatPanel() {
         return;
       }
 
-      // Mid-pipeline reload: the scan→classify chain runs server-side in
-      // Inngest, but loadThread just cleared any pipeline state. If onboarding
-      // is still active and this thread already kicked off run_pipeline,
-      // re-seed the pipeline so the live loading card + poll resume — otherwise
-      // the user sees a dead transcript and starts chatting at the agent.
-      if (onboarded === false && existing) {
+      // Mid-pipeline reload: the scan→classify→propose chain runs server-side
+      // in Inngest, but loadThread just cleared any pipeline state. Always
+      // check the pipeline endpoint regardless of `onboarded` — the
+      // `proposing` phase keeps running AFTER persona-confirm (which is when
+      // `onboarded` flips true), and a reload during that window otherwise
+      // shows a dead transcript with no progress indicator.
+      let pipelineActive = false;
+      if (existing) {
         try {
-          const td = await fetch(`/api/mail-analyzer/chat?threadId=${existing}`).then((r) =>
-            r.json(),
-          );
-          const started = (td.messages ?? []).some(
-            (m: ChatMsg) => m.role === "tool" && m.tool_name === "run_pipeline",
-          );
-          if (started) {
-            const s = await fetch("/api/mail-analyzer/onboarding/pipeline").then((r) => r.json());
-            if (s?.phase && s.phase !== "done") {
-              personaFetched.current = false;
-              setPipeline(s);
-            }
+          const s = await fetch("/api/mail-analyzer/onboarding/pipeline").then((r) => r.json());
+          if (s?.phase && s.phase !== "done" && s.phase !== "error") {
+            pipelineActive = true;
+            personaFetched.current = false;
+            setPipeline(s);
           }
         } catch {
           /* ignore — worst case the user re-triggers the pipeline via chat */
@@ -241,9 +236,9 @@ export default function ChatPanel() {
       }
 
       // Returning, already-onboarded user: ask the server what changed since
-      // last visit. It only responds with a message when there's news (and has
-      // already appended it server-side); otherwise the chat is left untouched.
-      if (!forceRebuild && onboarded !== false) {
+      // last visit. Skip while the pipeline is still active (proposing phase)
+      // — the greeting is a "welcome back," not a fresh-onboarding handoff.
+      if (!forceRebuild && onboarded !== false && !pipelineActive) {
         try {
           const g = await fetch("/api/mail-analyzer/greeting", { method: "POST" }).then((r) =>
             r.json(),

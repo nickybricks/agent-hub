@@ -120,8 +120,29 @@ export async function buildGreeting(userId: string): Promise<{ message: string }
   const onb = await onboardingState(userId);
   if (onb.active) return null; // onboarding flow owns the chat
 
+  // First-run gate: the user has confirmed their persona (onboarding "done")
+  // but the `proposing` Inngest job may still be running. Without this gate
+  // the greeting fires with "you have 3,600 new senders" right after persona
+  // confirm, because the just-classified mailbox looks like a huge delta vs
+  // an empty `last_seen`. Skip until at least one proposal exists, AND skip
+  // entirely on the very first visit (no prior `last_seen` memory).
   const prevRows = await listMemoriesPg(userId, { kind: "system", key: "last_seen", limit: 1 });
-  const prev = prevRows[0]?.content ?? ""; // "" → first return: all ISO timestamps sort after it
+  if (prevRows.length === 0) {
+    // Seed last_seen quietly so the *next* visit can compute real deltas.
+    await writeMemoryPg(userId, {
+      kind: "system",
+      key: "last_seen",
+      content: new Date().toISOString(),
+      source: "self",
+    });
+    return null;
+  }
+  const [propCount] = await getDrizzleDb().execute(sql`
+    SELECT COUNT(*) AS c FROM proposed_folders WHERE user_id = ${userId}
+  `);
+  if (Number((propCount as { c?: number })?.c ?? 0) === 0) return null;
+
+  const prev = prevRows[0].content;
 
   const signals = await gatherSignals(userId, prev);
 

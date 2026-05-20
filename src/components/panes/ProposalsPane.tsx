@@ -290,7 +290,7 @@ export default function ProposalsPane({ active }: { active: boolean }) {
         )}
       </div>
 
-      {duplicates.length > 0 && !dupDismissed && (
+      {proposals.length > 0 && duplicates.length > 0 && !dupDismissed && (
         <div className="rounded-xl border border-warning bg-warning-soft p-4 text-sm">
           <div className="mb-2 flex items-start justify-between gap-4">
             <p className="font-medium">
