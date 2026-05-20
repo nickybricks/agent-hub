@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { ArrowUp, Mic, Square } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -72,9 +72,44 @@ function normalizeAskOptions(raw: unknown): AskOption[] {
 }
 
 // Assistant replies are markdown (headings, tables, lists). Render them.
+// Tailwind Typography sets body/heading colours via `--tw-prose-*` CSS
+// variables; force them all to `--foreground` so the bot reads at the same
+// weight as the user bubble (the default muted grey looked like "thinking…").
+const proseColorOverrides = {
+  ["--tw-prose-body" as const]: "var(--foreground)",
+  ["--tw-prose-headings" as const]: "var(--foreground)",
+  ["--tw-prose-lead" as const]: "var(--foreground)",
+  ["--tw-prose-links" as const]: "var(--foreground)",
+  ["--tw-prose-bold" as const]: "var(--foreground)",
+  ["--tw-prose-counters" as const]: "var(--foreground)",
+  ["--tw-prose-bullets" as const]: "var(--foreground)",
+  ["--tw-prose-hr" as const]: "var(--foreground)",
+  ["--tw-prose-quotes" as const]: "var(--foreground)",
+  ["--tw-prose-quote-borders" as const]: "var(--foreground)",
+  ["--tw-prose-captions" as const]: "var(--foreground)",
+  ["--tw-prose-code" as const]: "var(--foreground)",
+  ["--tw-prose-th-borders" as const]: "var(--foreground)",
+  ["--tw-prose-td-borders" as const]: "var(--foreground)",
+  ["--tw-prose-invert-body" as const]: "var(--foreground)",
+  ["--tw-prose-invert-headings" as const]: "var(--foreground)",
+  ["--tw-prose-invert-lead" as const]: "var(--foreground)",
+  ["--tw-prose-invert-links" as const]: "var(--foreground)",
+  ["--tw-prose-invert-bold" as const]: "var(--foreground)",
+  ["--tw-prose-invert-counters" as const]: "var(--foreground)",
+  ["--tw-prose-invert-bullets" as const]: "var(--foreground)",
+  ["--tw-prose-invert-hr" as const]: "var(--foreground)",
+  ["--tw-prose-invert-quotes" as const]: "var(--foreground)",
+  ["--tw-prose-invert-quote-borders" as const]: "var(--foreground)",
+  ["--tw-prose-invert-captions" as const]: "var(--foreground)",
+  ["--tw-prose-invert-code" as const]: "var(--foreground)",
+} as CSSProperties;
+
 function Markdown({ children }: { children: string }) {
   return (
-    <div className="prose prose-sm max-w-none break-words text-[var(--foreground)] dark:prose-invert prose-headings:mb-1 prose-headings:mt-3 prose-headings:text-inherit prose-p:my-2 prose-p:text-inherit prose-li:text-inherit prose-strong:text-inherit prose-pre:my-2 prose-table:my-2 prose-table:block prose-table:overflow-x-auto prose-table:text-xs">
+    <div
+      style={proseColorOverrides}
+      className="prose prose-sm max-w-none break-words dark:prose-invert prose-headings:mb-1 prose-headings:mt-3 prose-p:my-2 prose-pre:my-2 prose-table:my-2 prose-table:block prose-table:overflow-x-auto prose-table:text-xs"
+    >
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
     </div>
   );
