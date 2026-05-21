@@ -72,19 +72,32 @@ jobs:
           git config user.name "mailyn-agent[bot]"
           git config user.email "agent@mailyn.dev"
 
+      - name: Normalize card id
+        id: card
+        run: |
+          # Strip Notion URL fragments and non-hex/dash chars; rebuild branch-safe slug.
+          RAW="${{ inputs.card_id }}"
+          CLEAN=$(echo "$RAW" | sed -E 's/\?.*$//' | tr -cd 'a-fA-F0-9-')
+          if [ -z "$CLEAN" ]; then
+            echo "::error::card_id is empty after sanitizing"; exit 1
+          fi
+          echo "id=$CLEAN" >> "$GITHUB_OUTPUT"
+          SLUG=$(echo "$CLEAN" | tr -d '-')
+          echo "slug=$SLUG" >> "$GITHUB_OUTPUT"
+
       - name: Create working branch
         id: branch
         run: |
-          BRANCH="agent/card-${{ inputs.card_id }}-$(date +%s)"
+          BRANCH="agent/card-${{ steps.card.outputs.slug }}-$(date +%s)"
           git checkout -b "$BRANCH"
           echo "name=$BRANCH" >> "$GITHUB_OUTPUT"
 
       - name: Claim card in Notion
-        run: npx tsx scripts/agent/backlog.ts claim "${{ inputs.card_id }}"
+        run: npx tsx scripts/agent/backlog.ts claim "${{ steps.card.outputs.id }}"
 
       - name: Run engineer agent
         id: engineer
-        run: npx tsx scripts/agent/engineer.ts "${{ inputs.card_id }}"
+        run: npx tsx scripts/agent/engineer.ts "${{ steps.card.outputs.id }}"
 
       - name: Check for changes
         id: diff
@@ -99,7 +112,7 @@ jobs:
         if: steps.diff.outputs.changed == 'true'
         run: |
           git add -A
-          git commit -m "agent: work on Notion card ${{ inputs.card_id }}"
+          git commit -m "agent: work on Notion card ${{ steps.card.outputs.id }}"
           git push origin "${{ steps.branch.outputs.name }}"
 
       - name: Open PR
@@ -109,24 +122,24 @@ jobs:
           GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}
         run: |
           PR_URL=$(gh pr create \
-            --title "agent: Notion card ${{ inputs.card_id }}" \
-            --body "Opened by the Engineer agent. Notion card: ${{ inputs.card_id }}" \
+            --title "agent: Notion card ${{ steps.card.outputs.id }}" \
+            --body "Opened by the Engineer agent. Notion card: ${{ steps.card.outputs.id }}" \
             --head "${{ steps.branch.outputs.name }}" \
             --base main)
           echo "url=$PR_URL" >> "$GITHUB_OUTPUT"
 
       - name: Send card to Review
         if: steps.pr.outputs.url != ''
-        run: npx tsx scripts/agent/backlog.ts review "${{ inputs.card_id }}" --pr="${{ steps.pr.outputs.url }}"
+        run: npx tsx scripts/agent/backlog.ts review "${{ steps.card.outputs.id }}" --pr="${{ steps.pr.outputs.url }}"
 
       - name: Notify success
         if: steps.pr.outputs.url != ''
-        run: npx tsx scripts/agent/notify.ts --kind=pr "Card ${{ inputs.card_id }} → ${{ steps.pr.outputs.url }}"
+        run: npx tsx scripts/agent/notify.ts --kind=pr "Card ${{ steps.card.outputs.id }} → ${{ steps.pr.outputs.url }}"
 
       - name: Notify no-op
         if: steps.diff.outputs.changed == 'false'
-        run: npx tsx scripts/agent/notify.ts --kind=stuck "Agent finished card ${{ inputs.card_id }} with no file changes."
+        run: npx tsx scripts/agent/notify.ts --kind=stuck "Agent finished card ${{ steps.card.outputs.id }} with no file changes."
 
       - name: Notify failure
         if: failure()
-        run: npx tsx scripts/agent/notify.ts --kind=stuck "Engineer workflow failed on card ${{ inputs.card_id }} (run ${{ github.run_id }})."
+        run: npx tsx scripts/agent/notify.ts --kind=stuck "Engineer workflow failed on card '${{ inputs.card_id }}' (run ${{ github.run_id }})."
