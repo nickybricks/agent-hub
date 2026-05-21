@@ -123,58 +123,82 @@ jobs:
             echo "stats=$FILES files; $STATS" >> "$GITHUB_OUTPUT"
           fi
 
+      # Card titles can contain ", $, `, etc. Always pass them via env vars
+      # to avoid breaking shell quoting via ${{ }} interpolation.
       - name: Commit and push
         if: steps.diff.outputs.changed == 'true'
+        env:
+          CARD_TITLE: ${{ steps.title.outputs.value }}
+          BRANCH: ${{ steps.branch.outputs.name }}
         run: |
           git add -A
-          git commit -m "agent: ${{ steps.title.outputs.value }}"
-          git push origin "${{ steps.branch.outputs.name }}"
+          git commit -m "agent: $CARD_TITLE"
+          git push origin "$BRANCH"
 
       - name: Open PR
         if: steps.diff.outputs.changed == 'true'
         id: pr
         env:
           GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}
+          CARD_TITLE: ${{ steps.title.outputs.value }}
+          CARD_ID: ${{ steps.card.outputs.id }}
+          DIFF_STATS: ${{ steps.diff.outputs.stats }}
+          BRANCH: ${{ steps.branch.outputs.name }}
         run: |
+          BODY=$(printf "Opened by the Engineer agent.\n\n**Notion card:** %s (\`%s\`)\n**Diff:** %s\n\nVerify (lint + typecheck + e2e) passed locally before this PR was opened." "$CARD_TITLE" "$CARD_ID" "$DIFF_STATS")
           PR_URL=$(gh pr create \
-            --title "agent: ${{ steps.title.outputs.value }}" \
-            --body "Opened by the Engineer agent.
-
-          **Notion card:** ${{ steps.title.outputs.value }} (\`${{ steps.card.outputs.id }}\`)
-          **Diff:** ${{ steps.diff.outputs.stats }}
-
-          Verify (lint + typecheck + e2e) passed locally before this PR was opened." \
-            --head "${{ steps.branch.outputs.name }}" \
+            --title "agent: $CARD_TITLE" \
+            --body "$BODY" \
+            --head "$BRANCH" \
             --base main)
           echo "url=$PR_URL" >> "$GITHUB_OUTPUT"
 
       - name: Send card to Review
         if: steps.pr.outputs.url != ''
-        run: npx tsx scripts/agent/backlog.ts review "${{ steps.card.outputs.id }}" --pr="${{ steps.pr.outputs.url }}"
+        env:
+          CARD_ID: ${{ steps.card.outputs.id }}
+          PR_URL: ${{ steps.pr.outputs.url }}
+        run: npx tsx scripts/agent/backlog.ts review "$CARD_ID" --pr="$PR_URL"
 
       - name: Notify success
         if: steps.pr.outputs.url != ''
+        env:
+          CARD_TITLE: ${{ steps.title.outputs.value }}
+          DIFF_STATS: ${{ steps.diff.outputs.stats }}
+          PR_URL: ${{ steps.pr.outputs.url }}
         run: |
-          npx tsx scripts/agent/notify.ts --kind=pr "PR opened: ${{ steps.title.outputs.value }}
-          Diff: ${{ steps.diff.outputs.stats }}
-          ${{ steps.pr.outputs.url }}"
+          npx tsx scripts/agent/notify.ts --kind=pr "PR opened: $CARD_TITLE
+          Diff: $DIFF_STATS
+          $PR_URL"
 
       - name: Park card (no-op)
         if: steps.diff.outputs.changed == 'false'
-        run: npx tsx scripts/agent/backlog.ts park "${{ steps.card.outputs.id }}"
+        env:
+          CARD_ID: ${{ steps.card.outputs.id }}
+        run: npx tsx scripts/agent/backlog.ts park "$CARD_ID"
 
       - name: Notify no-op
         if: steps.diff.outputs.changed == 'false'
+        env:
+          CARD_TITLE: ${{ steps.title.outputs.value }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          npx tsx scripts/agent/notify.ts --kind=stuck "Agent exited with no changes on: ${{ steps.title.outputs.value }} — card moved back to Backlog
-          Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          npx tsx scripts/agent/notify.ts --kind=stuck "Agent exited with no changes on: $CARD_TITLE — card moved back to Backlog
+          Run: $RUN_URL"
 
       - name: Park card (failure)
         if: failure() && steps.card.outputs.id != ''
-        run: npx tsx scripts/agent/backlog.ts park "${{ steps.card.outputs.id }}" || true
+        env:
+          CARD_ID: ${{ steps.card.outputs.id }}
+        run: npx tsx scripts/agent/backlog.ts park "$CARD_ID" || true
 
       - name: Notify failure
         if: failure()
+        env:
+          CARD_TITLE: ${{ steps.title.outputs.value }}
+          FALLBACK_ID: ${{ inputs.card_id }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          npx tsx scripts/agent/notify.ts --kind=stuck "Engineer workflow failed on card: ${{ steps.title.outputs.value || inputs.card_id }} — card moved back to Backlog
-          Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          LABEL="${CARD_TITLE:-$FALLBACK_ID}"
+          npx tsx scripts/agent/notify.ts --kind=stuck "Engineer workflow failed on card: $LABEL — card moved back to Backlog
+          Run: $RUN_URL"
