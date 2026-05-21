@@ -198,6 +198,8 @@ export function MobileTopBar() {
   const pathname = usePathname();
   const analyzerStatus = useAnalyzerStatus();
 
+  // Close mobile drawer on navigation — pathname is the external signal here.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setOpen(false); }, [pathname]);
 
   return (

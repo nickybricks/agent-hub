@@ -137,3 +137,11 @@ npm run eval:injection   # prompt-injection eval suite
 - `src/app/` — Next.js App Router UI + API routes
 - `db/migrations/` — Postgres schema incl. Row-Level Security policies
 - `evals/prompt-injection/` — adversarial prompt-injection test cases
+
+## Documentation
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) — how the agents fit together (Mermaid pipelines, boundaries)
+- [docs/agents/](docs/agents/) — one spec per agent (purpose, trigger, I/O, gotchas)
+
+Specs pin each agent source's SHA-256; `npm run docs:check` fails if code
+changed without the spec being re-baselined (`npm run docs:check -- --update`).

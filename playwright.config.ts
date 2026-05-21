@@ -1,0 +1,40 @@
+import { defineConfig, devices } from "@playwright/test";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
+
+const envFile = resolve(process.cwd(), ".env.local");
+if (existsSync(envFile)) {
+  // Node 20.6+ supports process.loadEnvFile.
+  process.loadEnvFile?.(envFile);
+}
+
+const PORT = Number(process.env.PORT ?? 3000);
+const BASE_URL = process.env.E2E_BASE_URL ?? `http://localhost:${PORT}`;
+
+export default defineConfig({
+  testDir: "./e2e",
+  fullyParallel: true,
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 1 : 0,
+  workers: process.env.CI ? 1 : undefined,
+  reporter: process.env.CI ? "github" : "list",
+  use: {
+    baseURL: BASE_URL,
+    trace: "on-first-retry",
+    screenshot: "only-on-failure",
+  },
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+    },
+  ],
+  webServer: process.env.E2E_BASE_URL
+    ? undefined
+    : {
+        command: "npm run dev",
+        port: PORT,
+        reuseExistingServer: !process.env.CI,
+        timeout: 120_000,
+      },
+});

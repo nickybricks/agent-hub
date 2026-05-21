@@ -8,15 +8,6 @@ export default function ThemeToggle() {
   const [theme, setTheme] = useState<Theme>("system");
   const [mounted, setMounted] = useState(false);
 
-  useEffect(() => {
-    setMounted(true);
-    const stored = localStorage.getItem("theme") as Theme | null;
-    if (stored) {
-      setTheme(stored);
-      applyTheme(stored);
-    }
-  }, []);
-
   function applyTheme(t: Theme) {
     const root = document.documentElement;
     root.classList.remove("light", "dark");
@@ -24,6 +15,18 @@ export default function ThemeToggle() {
     else if (t === "dark") root.classList.add("dark");
     // "system" = no class, CSS media query takes over
   }
+
+  // Hydration guard + read persisted theme — both depend on `window`/localStorage,
+  // so they can't run during SSR.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMounted(true);
+    const stored = localStorage.getItem("theme") as Theme | null;
+    if (stored) {
+      setTheme(stored);
+      applyTheme(stored);
+    }
+  }, []);
 
   function cycle() {
     const order: Theme[] = ["system", "light", "dark"];

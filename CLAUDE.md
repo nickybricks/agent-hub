@@ -70,6 +70,16 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 A Next.js 16 app (React 19, Tailwind 4, TypeScript) that fetches newsletters via IMAP, summarizes them with an LLM, and serves a digest UI.
 
+### Read these first (every task)
+
+Three durable docs encode product intent, past decisions, and codebase patterns. Read them before planning any non-trivial change:
+
+- [docs/PRODUCT.md](docs/PRODUCT.md) — what we're building, who for, north stars, voice. Answers "is this on-brand?"
+- [docs/DECISIONS.md](docs/DECISIONS.md) — append-only log of choices made and rejected, with reasoning. Answers "has this already been decided?" If you make a new judgment call mid-task, append an entry as part of the PR.
+- [docs/PATTERNS.md](docs/PATTERNS.md) — concrete patterns and anti-patterns for data layer, LLM calls, panes, error surfacing, etc. Answers "how do we do this here?"
+
+Session-to-session "what's next" still lives in [tasks/next-session-kickoff.md](tasks/next-session-kickoff.md); the long-form phase plan in [tasks/apple-mail-analyzer-plan.md](tasks/apple-mail-analyzer-plan.md).
+
 ### Architecture
 
 - **`src/agent/`** — standalone agent scripts run via `npx tsx` or launchd
@@ -92,17 +102,24 @@ A Next.js 16 app (React 19, Tailwind 4, TypeScript) that fetches newsletters via
 - **Mail provider abstraction:** all mail access goes through `createMailProvider()` in `src/lib/mail-provider.ts`. The factory reads `data/config.json` `mail.provider` (`imap` | `gmail` | `outlook`) and dynamically imports the matching `src/agent/providers/*.ts`. Don't talk to IMAP / Gmail API / Graph directly from consumers.
 - **API keys:** env vars take precedence over config (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`). Config `apiKey` is a fallback. Ollama needs no key.
 - **Mail credentials:** env vars override config for every provider — IMAP (`IMAP_HOST`/`IMAP_USER`/`IMAP_PASSWORD`/`IMAP_PORT`), Gmail (`GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`/`GOOGLE_REFRESH_TOKEN`), Outlook (`MS_CLIENT_ID`/`MS_CLIENT_SECRET`/`MS_TENANT_ID`/`MS_REFRESH_TOKEN`). OAuth callbacks at `/api/auth/google/callback` and `/api/auth/microsoft/callback` append the refresh token to `.env.local` via `upsertEnvVars()`.
-- **Persistence:** flat JSON files, no database. `data/config.json` is the source of truth for agent settings. `data/summaries/` stores one file per day (array of `Summary`). `data/runs.json` keeps the last 50 runs.
+- **Persistence:** **Postgres** (Supabase in prod, local Postgres / dev Supabase locally). Drizzle schema in `db/schema.ts`; helpers in `src/lib/*-pg.ts`. SQLite was removed 2026-05-20 — do not add it back. The legacy `data/config.json` + `data/summaries/` + `data/runs.json` files belong to the dead newsletter-CLI path and are not in product use; don't read/write them from new code.
 - **Types:** `NewsletterAgent`, `Email`, `Summary`, `AgentRun` are defined in `src/lib/types.ts`. Don't duplicate or inline them.
 - **No tests currently.** When adding features, manually verify via `npm run agent:run` and the dev UI at `http://localhost:3000`.
 
 ### Running things
 
 ```bash
-npm run dev          # Next.js dev server
-npm run agent:run    # Run the newsletter agent once (CLI)
-npm run lint         # ESLint
+npm run dev              # Next.js dev server
+npm run agent:run        # Run the newsletter agent once (CLI)
+npm run lint             # ESLint
+npm run test:e2e         # Playwright golden paths (boots dev server automatically)
+npm run test:e2e:setup   # Idempotently provision the e2e@mailyn.dev Supabase user
 ```
+
+E2E uses a dedicated Supabase user (`e2e@mailyn.dev`); creds in `.env.local`
+as `E2E_USER_EMAIL` / `E2E_USER_PASSWORD`. Tests live in `e2e/`. Run
+`test:e2e:setup` once per Supabase project (or after a wipe) to (re)create
+the user via service-role.
 
 ### Things to watch out for
 

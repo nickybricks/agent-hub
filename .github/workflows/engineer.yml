@@ -1,0 +1,132 @@
+name: Engineer Agent
+
+on:
+  workflow_dispatch:
+    inputs:
+      card_id:
+        description: Notion card (page) ID
+        required: true
+        type: string
+
+# Use AGENT_GH_TOKEN (PAT) for checkout/push so the resulting PR triggers
+# Vercel preview builds. GITHUB_TOKEN cannot trigger downstream workflows.
+jobs:
+  engineer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+      NOTION_BACKLOG_DB_ID: ${{ secrets.NOTION_BACKLOG_DB_ID }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      E2E_USER_EMAIL: ${{ secrets.E2E_USER_EMAIL }}
+      E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      CI: "true"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.AGENT_GH_TOKEN }}
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Install Claude Code CLI
+        run: npm i -g @anthropic-ai/claude-code
+
+      - name: Materialize .env.local for dev server
+        run: |
+          cat > .env.local <<'EOF'
+          NEXT_PUBLIC_SUPABASE_URL=${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DATABASE_URL=${{ secrets.DATABASE_URL }}
+          ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
+          E2E_USER_EMAIL=${{ secrets.E2E_USER_EMAIL }}
+          E2E_USER_PASSWORD=${{ secrets.E2E_USER_PASSWORD }}
+          NOTION_TOKEN=${{ secrets.NOTION_TOKEN }}
+          NOTION_BACKLOG_DB_ID=${{ secrets.NOTION_BACKLOG_DB_ID }}
+          TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID=${{ secrets.TELEGRAM_CHAT_ID }}
+          EOF
+
+      - name: Configure git
+        run: |
+          git config user.name "mailyn-agent[bot]"
+          git config user.email "agent@mailyn.dev"
+
+      - name: Create working branch
+        id: branch
+        run: |
+          BRANCH="agent/card-${{ inputs.card_id }}-$(date +%s)"
+          git checkout -b "$BRANCH"
+          echo "name=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Claim card in Notion
+        run: npx tsx scripts/agent/backlog.ts claim "${{ inputs.card_id }}"
+
+      - name: Run engineer agent
+        id: engineer
+        run: npx tsx scripts/agent/engineer.ts "${{ inputs.card_id }}"
+
+      - name: Check for changes
+        id: diff
+        run: |
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit and push
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          git add -A
+          git commit -m "agent: work on Notion card ${{ inputs.card_id }}"
+          git push origin "${{ steps.branch.outputs.name }}"
+
+      - name: Open PR
+        if: steps.diff.outputs.changed == 'true'
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}
+        run: |
+          PR_URL=$(gh pr create \
+            --title "agent: Notion card ${{ inputs.card_id }}" \
+            --body "Opened by the Engineer agent. Notion card: ${{ inputs.card_id }}" \
+            --head "${{ steps.branch.outputs.name }}" \
+            --base main)
+          echo "url=$PR_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Send card to Review
+        if: steps.pr.outputs.url != ''
+        run: npx tsx scripts/agent/backlog.ts review "${{ inputs.card_id }}" --pr="${{ steps.pr.outputs.url }}"
+
+      - name: Notify success
+        if: steps.pr.outputs.url != ''
+        run: npx tsx scripts/agent/notify.ts --kind=pr "Card ${{ inputs.card_id }} → ${{ steps.pr.outputs.url }}"
+
+      - name: Notify no-op
+        if: steps.diff.outputs.changed == 'false'
+        run: npx tsx scripts/agent/notify.ts --kind=stuck "Agent finished card ${{ inputs.card_id }} with no file changes."
+
+      - name: Notify failure
+        if: failure()
+        run: npx tsx scripts/agent/notify.ts --kind=stuck "Engineer workflow failed on card ${{ inputs.card_id }} (run ${{ github.run_id }})."
