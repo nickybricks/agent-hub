@@ -24,11 +24,22 @@ Set these under **Settings → Secrets and variables → Actions → Repository 
 
 ## How to run
 
-1. Pick a card from the Notion kanban — copy its page ID (UUID).
-2. **Actions → Engineer Agent → Run workflow → paste the card ID.**
-3. Watch the run. On success: PR opens, card moves to Review, Telegram pings.
-4. On verify failure the agent gets one retry; if it still fails the workflow
-   fails and Telegram gets a 🔴 ping.
+**Auto-trigger (default):** move a card to **"working on it"** in the
+Notion kanban. The [`Engineer Poller`](workflows/engineer-poller.yml)
+workflow runs every 5 minutes, picks the first card in that status, and
+dispatches the Engineer if no run is already in flight. Telegram pings
+🔵 when a dispatch fires, 🟢 on PR open, 🔴 on failure.
+
+**Manual:** Actions → Engineer Agent → Run workflow → paste the card ID.
+Useful when you want to fire one immediately or re-run a specific card.
+The Engineer workflow has `concurrency: engineer-agent`, so a manual
+dispatch will queue behind a running auto-dispatched one (and vice versa).
+
+On verify failure the agent gets one retry; if it still fails the workflow
+fails, Telegram gets a 🔴 ping, **and the card is moved back to Backlog**
+so the poller doesn't fire it again on its next tick. Same for no-op runs
+(agent exited with no changes). Re-move the card to "working on it" to
+retry.
 
 ## Notes
 

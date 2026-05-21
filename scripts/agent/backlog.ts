@@ -145,6 +145,13 @@ export async function markDone(pageId: string) {
   await setStatus(pageId, STATUS.done);
 }
 
+export async function park(pageId: string) {
+  // Move a card out of "working on it" after a failed/no-op run so the
+  // poller doesn't immediately re-dispatch it. User can re-move it once
+  // the underlying issue is fixed.
+  await setStatus(pageId, STATUS.backlog);
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   const [cmd, ...rest] = process.argv.slice(2);
   const flags = Object.fromEntries(
@@ -203,8 +210,15 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         console.log("done");
         break;
       }
+      case "park": {
+        const id = positional[0];
+        if (!id) throw new Error("usage: park <pageId>");
+        await park(id);
+        console.log("parked back to Backlog");
+        break;
+      }
       default:
-        console.error("commands: list | next | show <id> | claim <id> | review <id> --pr=<url> | done <id>");
+        console.error("commands: list | next | show <id> | claim <id> | review <id> --pr=<url> | done <id> | park <id>");
         process.exit(1);
     }
   };

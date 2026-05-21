@@ -14,6 +14,11 @@ jobs:
   engineer:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Serialize Engineer runs so the poller and manual dispatch can't fire
+    # two agents at once.
+    concurrency:
+      group: engineer-agent
+      cancel-in-progress: false
 
     env:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -154,14 +159,22 @@ jobs:
           Diff: ${{ steps.diff.outputs.stats }}
           ${{ steps.pr.outputs.url }}"
 
+      - name: Park card (no-op)
+        if: steps.diff.outputs.changed == 'false'
+        run: npx tsx scripts/agent/backlog.ts park "${{ steps.card.outputs.id }}"
+
       - name: Notify no-op
         if: steps.diff.outputs.changed == 'false'
         run: |
-          npx tsx scripts/agent/notify.ts --kind=stuck "Agent exited with no changes on: ${{ steps.title.outputs.value }}
+          npx tsx scripts/agent/notify.ts --kind=stuck "Agent exited with no changes on: ${{ steps.title.outputs.value }} — card moved back to Backlog
           Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+      - name: Park card (failure)
+        if: failure() && steps.card.outputs.id != ''
+        run: npx tsx scripts/agent/backlog.ts park "${{ steps.card.outputs.id }}" || true
 
       - name: Notify failure
         if: failure()
         run: |
-          npx tsx scripts/agent/notify.ts --kind=stuck "Engineer workflow failed on card: ${{ steps.title.outputs.value || inputs.card_id }}
+          npx tsx scripts/agent/notify.ts --kind=stuck "Engineer workflow failed on card: ${{ steps.title.outputs.value || inputs.card_id }} — card moved back to Backlog
           Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
