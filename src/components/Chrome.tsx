@@ -12,6 +12,7 @@ import { PageTransition } from "@/components/ui/PageTransition";
 export default function Chrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const bare =
+    pathname === "/" ||
     pathname === "/app" ||
     pathname.startsWith("/app/") ||
     pathname === "/login" ||

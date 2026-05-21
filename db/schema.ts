@@ -7,9 +7,18 @@ import {
   real,
   serial,
   text,
+  timestamp,
   unique,
   uuid,
 } from "drizzle-orm/pg-core";
+
+export const waitlist = pgTable("waitlist", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  email: text("email").notNull().unique(),
+  referrer: text("referrer"),
+  locale: text("locale"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const userSettings = pgTable("user_settings", {
   userId: uuid("user_id").primaryKey().notNull(),
