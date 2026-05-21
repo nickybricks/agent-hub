@@ -131,7 +131,14 @@ export async function claim(pageId: string) {
 
 export async function sendToReview(pageId: string, prUrl: string) {
   await setStatus(pageId, STATUS.review);
-  await addComment(pageId, `PR ready for review: ${prUrl}`);
+  // Comment is decorative — the status change is what matters. Tolerate
+  // integrations missing the "Insert content" capability so the run still
+  // counts as a success.
+  try {
+    await addComment(pageId, `PR ready for review: ${prUrl}`);
+  } catch (e) {
+    console.warn(`addComment failed (non-fatal): ${(e as Error).message}`);
+  }
 }
 
 export async function markDone(pageId: string) {
