@@ -110,23 +110,40 @@ jobs:
         id: engineer
         run: npx tsx scripts/agent/engineer.ts "${{ steps.card.outputs.id }}"
 
-      - name: Check for changes + capture stats
-        id: diff
+      - name: Classify run outcome
+        id: outcome
         run: |
-          if git diff --quiet && git diff --cached --quiet; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "stats=no file changes" >> "$GITHUB_OUTPUT"
+          # Three modes:
+          #   "pr"        — agent made code changes; open a PR.
+          #   "questions" — no code changes, but the agent wrote a plan.md
+          #                 with at least one BLOCKING question. Forward to
+          #                 the human via 🟡 Telegram.
+          #   "noop"      — no changes, no plan. Treat as stuck.
+          # Diff check ignores untracked .agent/ files — those don't count as
+          # "code changes" by themselves.
+          if git diff --quiet -- . ':(exclude).agent' && git diff --cached --quiet -- . ':(exclude).agent'; then
+            CODE_CHANGED=false
           else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            STATS=$(git diff --shortstat main | sed 's/^ *//')
-            FILES=$(git diff --name-only main | wc -l | tr -d ' ')
+            CODE_CHANGED=true
+          fi
+
+          if [ "$CODE_CHANGED" = "true" ]; then
+            STATS=$(git diff --shortstat main -- . ':(exclude).agent' | sed 's/^ *//')
+            FILES=$(git diff --name-only main -- . ':(exclude).agent' | wc -l | tr -d ' ')
+            echo "mode=pr" >> "$GITHUB_OUTPUT"
             echo "stats=$FILES files; $STATS" >> "$GITHUB_OUTPUT"
+          elif [ -f .agent/plan.md ] && grep -q "BLOCKING:" .agent/plan.md; then
+            echo "mode=questions" >> "$GITHUB_OUTPUT"
+            echo "stats=no code changes; agent asked questions" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=noop" >> "$GITHUB_OUTPUT"
+            echo "stats=no file changes" >> "$GITHUB_OUTPUT"
           fi
 
       # Card titles can contain ", $, `, etc. Always pass them via env vars
       # to avoid breaking shell quoting via ${{ }} interpolation.
       - name: Commit and push
-        if: steps.diff.outputs.changed == 'true'
+        if: steps.outcome.outputs.mode == 'pr'
         env:
           CARD_TITLE: ${{ steps.title.outputs.value }}
           BRANCH: ${{ steps.branch.outputs.name }}
@@ -135,20 +152,41 @@ jobs:
           git commit -m "agent: $CARD_TITLE"
           git push origin "$BRANCH"
 
+      - name: Build PR body from decisions.md
+        if: steps.outcome.outputs.mode == 'pr'
+        env:
+          CARD_TITLE: ${{ steps.title.outputs.value }}
+          CARD_ID: ${{ steps.card.outputs.id }}
+          DIFF_STATS: ${{ steps.outcome.outputs.stats }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          # Header always present; body uses the agent's own decisions.md if
+          # it exists. Falls back to a minimal stub so the PR isn't blank.
+          mkdir -p .agent
+          {
+            printf "Opened by the Engineer agent.\n\n"
+            printf -- "- **Notion card:** %s (\`%s\`)\n" "$CARD_TITLE" "$CARD_ID"
+            printf -- "- **Diff:** %s\n" "$DIFF_STATS"
+            printf -- "- **Run:** %s\n\n" "$RUN_URL"
+            printf -- "---\n\n"
+            if [ -f .agent/decisions.md ]; then
+              cat .agent/decisions.md
+            else
+              printf "_The agent did not write \`.agent/decisions.md\` for this run. No structured reasoning available — review the diff carefully._\n"
+            fi
+          } > .agent/pr-body.md
+
       - name: Open PR
-        if: steps.diff.outputs.changed == 'true'
+        if: steps.outcome.outputs.mode == 'pr'
         id: pr
         env:
           GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}
           CARD_TITLE: ${{ steps.title.outputs.value }}
-          CARD_ID: ${{ steps.card.outputs.id }}
-          DIFF_STATS: ${{ steps.diff.outputs.stats }}
           BRANCH: ${{ steps.branch.outputs.name }}
         run: |
-          BODY=$(printf "Opened by the Engineer agent.\n\n**Notion card:** %s (\`%s\`)\n**Diff:** %s\n\nVerify (lint + typecheck + e2e) passed locally before this PR was opened." "$CARD_TITLE" "$CARD_ID" "$DIFF_STATS")
           PR_URL=$(gh pr create \
             --title "agent: $CARD_TITLE" \
-            --body "$BODY" \
+            --body-file .agent/pr-body.md \
             --head "$BRANCH" \
             --base main)
           echo "url=$PR_URL" >> "$GITHUB_OUTPUT"
@@ -164,26 +202,64 @@ jobs:
         if: steps.pr.outputs.url != ''
         env:
           CARD_TITLE: ${{ steps.title.outputs.value }}
-          DIFF_STATS: ${{ steps.diff.outputs.stats }}
+          DIFF_STATS: ${{ steps.outcome.outputs.stats }}
           PR_URL: ${{ steps.pr.outputs.url }}
         run: |
-          npx tsx scripts/agent/notify.ts --kind=pr "PR opened: $CARD_TITLE
-          Diff: $DIFF_STATS
-          $PR_URL"
+          # Lead the ping with the "In plain English" paragraph from
+          # decisions.md so a non-engineer can read it at a glance.
+          PLAIN=""
+          if [ -f .agent/decisions.md ]; then
+            PLAIN=$(awk '/^## In plain English/{flag=1;next} /^## /{flag=0} flag' .agent/decisions.md | sed '/^$/d' | head -10)
+          fi
+          {
+            printf "PR opened: %s\n" "$CARD_TITLE"
+            if [ -n "$PLAIN" ]; then
+              printf "\nWhat changed (in plain English):\n%s\n" "$PLAIN"
+            fi
+            printf "\nDiff: %s\n%s" "$DIFF_STATS" "$PR_URL"
+          } > .agent/notify-success.txt
+          npx tsx scripts/agent/notify.ts --kind=pr "$(cat .agent/notify-success.txt)"
 
-      - name: Park card (no-op)
-        if: steps.diff.outputs.changed == 'false'
+      # 🟡 Agent decided it can't safely act — wrote a plan with BLOCKING
+      # questions and exited. Forward the questions to Telegram so the human
+      # can sharpen the card.
+      - name: Park card (questions)
+        if: steps.outcome.outputs.mode == 'questions'
         env:
           CARD_ID: ${{ steps.card.outputs.id }}
         run: npx tsx scripts/agent/backlog.ts park "$CARD_ID"
 
-      - name: Notify no-op
-        if: steps.diff.outputs.changed == 'false'
+      - name: Notify questions
+        if: steps.outcome.outputs.mode == 'questions'
         env:
           CARD_TITLE: ${{ steps.title.outputs.value }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          npx tsx scripts/agent/notify.ts --kind=stuck "Agent exited with no changes on: $CARD_TITLE — card moved back to Backlog
+          # Telegram caps messages at ~4096 chars. Truncate the plan to ~3500
+          # to leave room for header + footer.
+          PLAN=$(head -c 3500 .agent/plan.md)
+          {
+            printf "Engineer paused on: %s\n\n" "$CARD_TITLE"
+            printf "The agent wrote a plan with open questions and is waiting for clearer guidance. Card moved back to Backlog.\n\n"
+            printf -- "--- plan ---\n%s\n" "$PLAN"
+            printf "\nFull run: %s" "$RUN_URL"
+          } > .agent/notify-questions.txt
+          npx tsx scripts/agent/notify.ts --kind=decision "$(cat .agent/notify-questions.txt)"
+
+      - name: Park card (noop)
+        if: steps.outcome.outputs.mode == 'noop'
+        env:
+          CARD_ID: ${{ steps.card.outputs.id }}
+        run: npx tsx scripts/agent/backlog.ts park "$CARD_ID"
+
+      - name: Notify noop
+        if: steps.outcome.outputs.mode == 'noop'
+        env:
+          CARD_TITLE: ${{ steps.title.outputs.value }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          npx tsx scripts/agent/notify.ts --kind=stuck "Agent exited with no changes and no plan on: $CARD_TITLE — card moved back to Backlog.
+          This usually means the agent didn't follow its instructions. Inspect the run.
           Run: $RUN_URL"
 
       - name: Park card (failure)
@@ -200,5 +276,19 @@ jobs:
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           LABEL="${CARD_TITLE:-$FALLBACK_ID}"
-          npx tsx scripts/agent/notify.ts --kind=stuck "Engineer workflow failed on card: $LABEL — card moved back to Backlog
-          Run: $RUN_URL"
+          # If the agent wrote a verify-failure.txt, include a truncated
+          # excerpt so the human sees what actually broke without opening
+          # the full GH Actions log.
+          DETAIL=""
+          if [ -f .agent/verify-failure.txt ]; then
+            DETAIL=$(tail -c 2500 .agent/verify-failure.txt)
+          fi
+          mkdir -p .agent
+          {
+            printf "Engineer workflow failed on card: %s — card moved back to Backlog\n" "$LABEL"
+            if [ -n "$DETAIL" ]; then
+              printf "\n--- last verify output ---\n%s\n" "$DETAIL"
+            fi
+            printf "\nRun: %s" "$RUN_URL"
+          } > .agent/notify-failure.txt
+          npx tsx scripts/agent/notify.ts --kind=stuck "$(cat .agent/notify-failure.txt)"

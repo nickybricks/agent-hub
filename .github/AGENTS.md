@@ -41,11 +41,39 @@ so the poller doesn't fire it again on its next tick. Same for no-op runs
 (agent exited with no changes). Re-move the card to "working on it" to
 retry.
 
+## Reasoning artifacts
+
+Every Engineer run produces structured reasoning in a `.agent/` directory,
+committed alongside the code changes:
+
+- **`.agent/plan.md`** — written *before* any code edits. Contains a plain-
+  English summary, the agent's interpretation of the card, its planned
+  approach, files it expects to touch, things explicitly out of scope, and
+  open questions. If any open question starts with **BLOCKING:**, the
+  agent exits without editing code and the question is forwarded via 🟡
+  Telegram.
+- **`.agent/decisions.md`** — written *after* code edits. Contains a plain-
+  English summary of what changed, per-file change descriptions, why each
+  non-obvious choice was made, judgment calls, what was deliberately NOT
+  done, and risks/follow-ups. The PR body uses this file verbatim, and the
+  🟢 Telegram ping leads with its "In plain English" paragraph.
+- **`.agent/verify-failure.txt`** — written if `lint`/`typecheck`/`test:e2e`
+  fails after the retry. Included in the 🔴 Telegram ping so you can see
+  what actually broke without opening the GH Actions log.
+
+Both `plan.md` and `decisions.md` have a required "In plain English" first
+section written without engineering jargon — readable by a non-technical
+reviewer.
+
 ## Notes
 
 - The card must have actionable acceptance criteria in its description.
 - The workflow checks out with `fetch-depth: 0` so `git diff` against `main` works.
 - Branch naming: `agent/card-<id>-<unix-ts>`.
-- The agent is constrained from editing `.github/`, `playwright.config.ts`, or
-  `scripts/agent/` (see [scripts/agent/engineer.ts](../scripts/agent/engineer.ts)).
+- The agent is constrained from editing `.github/`, `playwright.config.ts`,
+  `scripts/agent/`, or `tasks/` (see [scripts/agent/engineer.ts](../scripts/agent/engineer.ts)).
+  `.agent/` IS allowed — that's where the reasoning artifacts go.
 - Self-verify runs `lint`, `typecheck`, `test:e2e` in that order.
+- Telegram messages are capped at ~4096 chars; long plans and verify
+  outputs are truncated in the ping but the full content is in the PR /
+  GH Actions log.
