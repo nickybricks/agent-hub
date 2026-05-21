@@ -131,7 +131,7 @@ export default function ChatPanel() {
   const [pipelineElapsed, setPipelineElapsed] = useState(0);
   const [persona, setPersona] = useState<string | null>(null);
   const [personaEdit, setPersonaEdit] = useState("");
-  const personaFetched = useRef(false);
+  const [personaRetry, setPersonaRetry] = useState(0);
   const [cProvider, setCProvider] = useState<"imap" | "gmail" | "outlook">("imap");
   const [cImap, setCImap] = useState({ host: "", port: "993", user: "", password: "" });
   const [cBusy, setCBusy] = useState(false);
@@ -184,7 +184,6 @@ export default function ChatPanel() {
         setConnectCard(false);
         setPersona(null);
         setPipeline(null);
-        personaFetched.current = false;
         setError(null);
       }
     } catch {
@@ -239,7 +238,6 @@ export default function ChatPanel() {
           const s = await fetch("/api/mail-analyzer/onboarding/pipeline").then((r) => r.json());
           if (s?.phase && s.phase !== "done" && s.phase !== "error") {
             pipelineActive = true;
-            personaFetched.current = false;
             setPipeline(s);
           }
         } catch {
@@ -277,16 +275,6 @@ export default function ChatPanel() {
         const s = await fetch("/api/mail-analyzer/onboarding/pipeline").then((r) => r.json());
         if (cancelled || !s || !s.phase) return;
         setPipeline(s);
-        if (s.phase === "persona_ready" && !personaFetched.current && !persona) {
-          personaFetched.current = true;
-          const d = await fetch("/api/mail-analyzer/onboarding/persona-draft", {
-            method: "POST",
-          }).then((r) => r.json());
-          if (!cancelled && d?.persona) {
-            setPersona(d.persona);
-            setPersonaEdit(d.persona);
-          }
-        }
         if (s.phase === "done" && threadId != null) {
           await loadThread(threadId);
           bump();
@@ -303,6 +291,41 @@ export default function ChatPanel() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pipeline?.phase, threadId]);
+
+  // Fetch the persona draft once the pipeline reaches `persona_ready`. Lives
+  // in its own effect so the polling effect's cancel-on-phase-change can't
+  // strand an in-flight draft request (previous bug: phase flipped to
+  // persona_ready, polling effect re-ran, its cleanup cancelled the draft POST
+  // started in the same tick → persona never appeared until reload).
+  useEffect(() => {
+    if (pipeline?.phase !== "persona_ready" || persona) return;
+    let cancelled = false;
+    let retryId: ReturnType<typeof setTimeout> | null = null;
+    (async () => {
+      try {
+        const d = await fetch("/api/mail-analyzer/onboarding/persona-draft", {
+          method: "POST",
+        }).then((r) => r.json());
+        if (cancelled) return;
+        if (d?.persona) {
+          setPersona(d.persona);
+          setPersonaEdit(d.persona);
+          return;
+        }
+      } catch {
+        /* fall through to retry */
+      }
+      // Defensive: retry every 5s while the phase stays persona_ready.
+      if (!cancelled) {
+        retryId = setTimeout(() => setPersonaRetry((n) => n + 1), 5000);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (retryId) clearTimeout(retryId);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pipeline?.phase, persona, personaRetry]);
 
   // Elapsed-time counter. Anchors on the first tick after pipeline appears,
   // resets when pipeline clears or finishes — so minutes-long waits show
@@ -371,7 +394,6 @@ export default function ChatPanel() {
         } else if (ev.type === "connect") {
           setConnectCard(true);
         } else if (ev.type === "pipeline") {
-          personaFetched.current = false;
           setPipeline({ phase: "scanning" });
         } else if (ev.type === "done") {
           if (ev.threadId) setThreadId(ev.threadId);
@@ -507,7 +529,6 @@ export default function ChatPanel() {
     setConnectCard(false);
     setPersona(null);
     setPipeline(null);
-    personaFetched.current = false;
     setError(null);
     resetLive();
   }
