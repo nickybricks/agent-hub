@@ -92,6 +92,12 @@ jobs:
           git checkout -b "$BRANCH"
           echo "name=$BRANCH" >> "$GITHUB_OUTPUT"
 
+      - name: Fetch card title
+        id: title
+        run: |
+          TITLE=$(npx tsx scripts/agent/backlog.ts show "${{ steps.card.outputs.id }}" | jq -r .title)
+          echo "value=$TITLE" >> "$GITHUB_OUTPUT"
+
       - name: Claim card in Notion
         run: npx tsx scripts/agent/backlog.ts claim "${{ steps.card.outputs.id }}"
 
@@ -99,20 +105,24 @@ jobs:
         id: engineer
         run: npx tsx scripts/agent/engineer.ts "${{ steps.card.outputs.id }}"
 
-      - name: Check for changes
+      - name: Check for changes + capture stats
         id: diff
         run: |
           if git diff --quiet && git diff --cached --quiet; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "stats=no file changes" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
+            STATS=$(git diff --shortstat main | sed 's/^ *//')
+            FILES=$(git diff --name-only main | wc -l | tr -d ' ')
+            echo "stats=$FILES files; $STATS" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Commit and push
         if: steps.diff.outputs.changed == 'true'
         run: |
           git add -A
-          git commit -m "agent: work on Notion card ${{ steps.card.outputs.id }}"
+          git commit -m "agent: ${{ steps.title.outputs.value }}"
           git push origin "${{ steps.branch.outputs.name }}"
 
       - name: Open PR
@@ -122,8 +132,13 @@ jobs:
           GH_TOKEN: ${{ secrets.AGENT_GH_TOKEN }}
         run: |
           PR_URL=$(gh pr create \
-            --title "agent: Notion card ${{ steps.card.outputs.id }}" \
-            --body "Opened by the Engineer agent. Notion card: ${{ steps.card.outputs.id }}" \
+            --title "agent: ${{ steps.title.outputs.value }}" \
+            --body "Opened by the Engineer agent.
+
+          **Notion card:** ${{ steps.title.outputs.value }} (\`${{ steps.card.outputs.id }}\`)
+          **Diff:** ${{ steps.diff.outputs.stats }}
+
+          Verify (lint + typecheck + e2e) passed locally before this PR was opened." \
             --head "${{ steps.branch.outputs.name }}" \
             --base main)
           echo "url=$PR_URL" >> "$GITHUB_OUTPUT"
@@ -134,12 +149,19 @@ jobs:
 
       - name: Notify success
         if: steps.pr.outputs.url != ''
-        run: npx tsx scripts/agent/notify.ts --kind=pr "Card ${{ steps.card.outputs.id }} → ${{ steps.pr.outputs.url }}"
+        run: |
+          npx tsx scripts/agent/notify.ts --kind=pr "PR opened: ${{ steps.title.outputs.value }}
+          Diff: ${{ steps.diff.outputs.stats }}
+          ${{ steps.pr.outputs.url }}"
 
       - name: Notify no-op
         if: steps.diff.outputs.changed == 'false'
-        run: npx tsx scripts/agent/notify.ts --kind=stuck "Agent finished card ${{ steps.card.outputs.id }} with no file changes."
+        run: |
+          npx tsx scripts/agent/notify.ts --kind=stuck "Agent exited with no changes on: ${{ steps.title.outputs.value }}
+          Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
       - name: Notify failure
         if: failure()
-        run: npx tsx scripts/agent/notify.ts --kind=stuck "Engineer workflow failed on card '${{ inputs.card_id }}' (run ${{ github.run_id }})."
+        run: |
+          npx tsx scripts/agent/notify.ts --kind=stuck "Engineer workflow failed on card: ${{ steps.title.outputs.value || inputs.card_id }}
+          Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
