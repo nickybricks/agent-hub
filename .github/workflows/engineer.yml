@@ -262,6 +262,56 @@ jobs:
           This usually means the agent didn't follow its instructions. Inspect the run.
           Run: $RUN_URL"
 
+      # On failure, capture whatever the agent produced so it isn't lost
+      # with the runner. Generates a patch of all uncommitted work
+      # (tracked + untracked) and uploads .agent/ + the patch as a
+      # downloadable artifact (retained 90 days on free tier).
+      - name: Capture work-in-progress on failure
+        if: failure()
+        run: |
+          mkdir -p .agent
+          # `git add -A` stages everything (including untracked files), then
+          # `git diff --cached` produces a full patch. Safe on a throwaway
+          # runner — we never push these stages.
+          git add -A 2>/dev/null || true
+          git diff --cached --binary > .agent/work.patch 2>/dev/null || true
+          git status --short > .agent/work.status 2>/dev/null || true
+          # Note for the downloader on how to use the patch.
+          cat > .agent/README.md <<'NOTE'
+          # Engineer failure artifacts
+
+          This bundle was uploaded because the Engineer workflow failed
+          mid-run. Use it to inspect or salvage the agent's work without
+          re-running.
+
+          ## Contents
+
+          - `plan.md` / `decisions.md` — the agent's reasoning, if it got
+            far enough to write them.
+          - `verify-failure.txt` — last failing verify output, if any.
+          - `work.patch` — full diff of every change the agent made (tracked
+            + new files). Apply with `git apply .agent/work.patch` from a
+            clean checkout of the same base commit.
+          - `work.status` — `git status --short` snapshot.
+
+          ## Salvaging
+
+          ```sh
+          git checkout -b agent-recovery <base-sha>
+          git apply .agent/work.patch
+          # inspect, fix, commit
+          ```
+          NOTE
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: engineer-work-${{ github.run_id }}
+          path: .agent/
+          retention-days: 90
+          if-no-files-found: ignore
+
       - name: Park card (failure)
         if: failure() && steps.card.outputs.id != ''
         env:
@@ -289,6 +339,7 @@ jobs:
             if [ -n "$DETAIL" ]; then
               printf "\n--- last verify output ---\n%s\n" "$DETAIL"
             fi
+            printf "\nAgent's work-in-progress was saved as an artifact on the run page (download to inspect or salvage).\n"
             printf "\nRun: %s" "$RUN_URL"
           } > .agent/notify-failure.txt
           npx tsx scripts/agent/notify.ts --kind=stuck "$(cat .agent/notify-failure.txt)"

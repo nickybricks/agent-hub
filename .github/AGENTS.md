@@ -61,6 +61,13 @@ committed alongside the code changes:
   fails after the retry. Included in the 🔴 Telegram ping so you can see
   what actually broke without opening the GH Actions log.
 
+**On any workflow failure**, the entire `.agent/` directory plus a full
+`git diff` patch of the agent's uncommitted work is uploaded as a GH
+Actions artifact (`engineer-work-<run_id>`) retained for 90 days. Download
+from the run page to inspect or hand-apply the agent's work — avoids
+re-spending tokens on a re-run when the failure was mechanical (e.g., a
+shell-quoting bug, a flaky verify step).
+
 Both `plan.md` and `decisions.md` have a required "In plain English" first
 section written without engineering jargon — readable by a non-technical
 reviewer.
