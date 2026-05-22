@@ -644,8 +644,7 @@ export default function ChatPanel() {
                   )}
                   {pipeline.phase === "classifying" && (
                     <>
-                      Tagging each sender (newsletter / transactional / personal / …) with a
-                      cheap fast model.{" "}
+                      Tagging each sender (newsletter / transactional / personal / …).{" "}
                       <span className="text-foreground">
                         {(pipeline.classified ?? 0).toLocaleString()}
                         {pipeline.totalSenders
