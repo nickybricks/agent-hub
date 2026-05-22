@@ -23,6 +23,59 @@ export const runtime = "nodejs";
 const GH_REPO = "nickybricks/agent-hub";
 const POLLER_WORKFLOW = "engineer-poller.yml";
 
+// We only care about events that could mean a card moved between status
+// columns. Comments, user changes, database-schema events, etc. are noise
+// — pokin the poller for those is wasted GH Actions minutes.
+//
+// Notion's webhook payload shape varies by event type and has shifted
+// during beta. We look at common locations for a type string and use
+// substring matching to be tolerant of minor format changes.
+function extractEventType(payload: Record<string, unknown>): string {
+  const candidates: unknown[] = [
+    payload.type,
+    payload.event_type,
+    payload.event,
+    (payload.event as Record<string, unknown> | undefined)?.type,
+    (payload.data as Record<string, unknown> | undefined)?.type,
+  ];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.length > 0) return c.toLowerCase();
+  }
+  return "";
+}
+
+function shouldPokePoller(payload: Record<string, unknown>): {
+  poke: boolean;
+  reason: string;
+} {
+  const type = extractEventType(payload);
+
+  // Explicit skip list — events that definitely don't mean a status change.
+  if (type.includes("comment")) return { poke: false, reason: `skip:${type}` };
+  if (type.startsWith("user.")) return { poke: false, reason: `skip:${type}` };
+  if (type.startsWith("workspace.")) return { poke: false, reason: `skip:${type}` };
+  if (type.startsWith("database.schema")) return { poke: false, reason: `skip:${type}` };
+
+  // Page property/move/status changes are exactly what we want.
+  if (
+    type.includes("properties_updated") ||
+    type.includes("page.updated") ||
+    type.includes("page.moved") ||
+    type.includes("status")
+  ) {
+    return { poke: true, reason: `match:${type}` };
+  }
+
+  // Page create/delete events are borderline — a freshly created card in
+  // "working on it" is rare but possible. Cheaper to poke than miss it.
+  if (type.startsWith("page.")) return { poke: true, reason: `page:${type}` };
+
+  // Unknown event shapes — log so we can tighten the filter later. Default
+  // to NOT poking so a future Notion beta change doesn't accidentally flood
+  // the poller. If something stops working, check the log.
+  return { poke: false, reason: `unknown:${type || "(empty)"}` };
+}
+
 function verifySignature(rawBody: string, signature: string | null): boolean {
   const secret = process.env.NOTION_WEBHOOK_SECRET;
   if (!secret || !signature) return false;
@@ -77,16 +130,23 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, reason: "invalid_signature" }, { status: 401 });
   }
 
+  const decision = shouldPokePoller(parsed as Record<string, unknown>);
+  if (!decision.poke) {
+    console.log(`[notion-webhook] ${decision.reason}`);
+    return NextResponse.json({ ok: true, skipped: decision.reason });
+  }
+
   const result = await pokePoller();
   if (!result.ok) {
-    console.error(`[notion-webhook] poker poke failed`, result);
+    console.error(`[notion-webhook] poller poke failed`, result);
     return NextResponse.json(
       { ok: false, reason: "dispatch_failed", detail: result.body },
       { status: 502 },
     );
   }
 
-  return NextResponse.json({ ok: true, poked: POLLER_WORKFLOW });
+  console.log(`[notion-webhook] poked poller (${decision.reason})`);
+  return NextResponse.json({ ok: true, poked: POLLER_WORKFLOW, reason: decision.reason });
 }
 
 // Notion sometimes hits the URL with GET when you configure it in the UI.
