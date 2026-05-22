@@ -8,47 +8,56 @@ follow the steps in order.
 
 ## What you're building
 
-A loop where you drop tasks into a Notion kanban and code shows up as
-GitHub pull requests, without you clicking anything in between.
+Two small agents that talk to you on Telegram, share a kanban board,
+and turn your decisions into shipped code without you clicking
+anything in between.
 
-1. You move a card from **Backlog** to **"working on it"** in Notion.
-2. Notion fires a webhook to your Vercel app.
-3. The Vercel app pokes a GitHub Actions workflow.
-4. GitHub Actions runs Claude Code inside a sandboxed Ubuntu runner.
-5. The agent reads your project's docs, writes a plan, implements the
-   change, runs your tests, opens a pull request, and tells you on
-   Telegram.
+- A **PM agent** writes you each morning. It looks at the backlog,
+  proposes what to do next, and waits for your reply.
+- An **Engineer agent** writes the code. It reads the project docs,
+  drafts a plan, implements it, runs your tests, and opens a pull
+  request for you to merge.
 
-You stay in the loop at exactly two points: writing the card, and
-reviewing/merging the PR.
-
-There's also an **optional PM layer**: a small agent that runs once a
-day, reviews the backlog, proposes the next card on Telegram, and waits
-for you to reply `go` before any code runs. See
-[Inbound Telegram + PM agent](#inbound-telegram--pm-agent-optional)
-below. Skip it if you'd rather pick cards yourself.
+You stay in the loop at three places: writing or sharpening cards,
+replying `go` to the PM (or redirecting it), and reviewing the PR.
 
 ```mermaid
 flowchart TD
-    You([You]) -->|move card to<br/>"working on it"| Notion[(Notion kanban)]
-    Notion -->|webhook| Vercel[Vercel route<br/>verifies signature]
-    Vercel -->|dispatch| Poller[GH Actions:<br/>Engineer Poller]
-    Poller --> Busy{Engineer<br/>already running?}
-    Busy -->|yes| Skip[Skip — next event<br/>will pick it up]
-    Busy -->|no| Engineer[GH Actions:<br/>Engineer]
-    Engineer --> Read[Read project docs<br/>+ Notion card]
-    Read --> Plan[Write .agent/plan.md<br/>plain English + technical]
-    Plan --> Block{Plan contains<br/>BLOCKING question?}
-    Block -->|yes| Park1[Park card to Backlog<br/>🟡 Telegram with plan]
-    Block -->|no| Impl[Implement code]
-    Impl --> Verify{lint + typecheck<br/>+ e2e pass?}
-    Verify -->|no, after retry| Park2[Park card<br/>🔴 Telegram + work artifact]
-    Verify -->|yes| Decisions[Write .agent/decisions.md<br/>plain English + technical]
-    Decisions --> PR[Open PR<br/>body = decisions.md]
-    PR --> Done[Move card to Review<br/>🟢 Telegram with summary]
-    Park1 --> You
-    Park2 --> You
-    Done --> You
+    You([You — on your phone or laptop])
+
+    subgraph Morning [Every morning]
+        direction TB
+        PM[PM agent reads the backlog<br/>and picks the top card]
+        PM --> Pitch[Sends you a Telegram message:<br/>"I propose X because Y. Go?"]
+    end
+
+    Pitch --> You
+
+    You -->|"`go`"| Claim[Card moves to<br/>'working on it']
+    You -->|"`do Y instead`<br/>or any question"| Chat[PM replies in the same<br/>Telegram thread — can<br/>swap the proposed card]
+    You -->|"`add: ...`"| AddCard[New card appears<br/>in the backlog]
+    Chat --> You
+    AddCard --> You
+
+    Claim --> Engineer
+
+    subgraph Engineer [Engineer agent run]
+        direction TB
+        Read[Reads the card<br/>and your project docs]
+        Read --> Plan[Writes a plain-English plan<br/>before touching code]
+        Plan --> Stuck{Stuck on<br/>something?}
+        Stuck -->|yes| Park[Card goes back to backlog<br/>You get the question on Telegram]
+        Stuck -->|no| Code[Writes the code +<br/>runs your tests]
+        Code --> Fail{Tests pass?}
+        Fail -->|no| Salvage[Card parked,<br/>work saved as artifact,<br/>you get the error on Telegram]
+        Fail -->|yes| Ship[Opens a pull request<br/>with a plain-English summary]
+    end
+
+    Ship -->|🟢 PR ready| You
+    Park -->|🟡 question| You
+    Salvage -->|🔴 failed| You
+
+    You -->|review and merge| Done([Shipped])
 ```
 
 ---
@@ -219,9 +228,16 @@ Or paste the contents into Supabase SQL Editor.
 openssl rand -hex 32   # generate a secret
 ```
 
-Add to Vercel as `TELEGRAM_WEBHOOK_SECRET`. `TELEGRAM_BOT_TOKEN` and
-`TELEGRAM_CHAT_ID` are already set if outbound notifications work.
-`DATABASE_URL` must be present too (it is, if the rest of the app works).
+Add to Vercel as `TELEGRAM_WEBHOOK_SECRET`. The webhook also needs
+`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `NOTION_TOKEN`,
+`NOTION_BACKLOG_DB_ID`, `ANTHROPIC_API_KEY`, and `DATABASE_URL` in the
+Vercel Production environment — **all of them, not just the secret.**
+The first four are easy to overlook because they live in GH Actions
+secrets too, but the Vercel function needs its own copies. Add them
+via the Vercel dashboard (`vercel env add` with piped/redirected stdin
+silently records empty strings in some CLI versions — the dashboard is
+more reliable). Sensitive flag is fine for any of them; it only hides
+the value from `vercel env pull`, not from the running function.
 
 **3. Register the webhook with Telegram:**
 
@@ -421,9 +437,6 @@ To keep scope honest, these are things you might expect but won't find:
   and answer questions about the backlog, but it can't open a PR
   against your roadmap doc when you say "after folders we should X".
   That's a future slice.
-- **No PM agent.** There's no agent that talks to you in the morning,
-  reviews backlog, or proposes priorities. You write the cards
-  yourself.
 - **No quality eval.** The verify suite catches syntax/type/integration
   failures. It doesn't grade the agent's judgment. If the agent picks
   a bad approach but the code still passes lint, you find out at PR
