@@ -6,7 +6,8 @@ import {
   setProposedCard,
   type PmConversation,
 } from "@/lib/pm-conversations";
-import { claim, createCard } from "../../../../../scripts/agent/backlog";
+import { runPm } from "@/lib/pm-agent";
+import { claim, createCard, listBacklog } from "../../../../../scripts/agent/backlog";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -22,10 +23,11 @@ export const runtime = "nodejs";
 //   3. Telegram echoes the secret back in the X-Telegram-Bot-Api-Secret-Token
 //      header on every delivery. We compare and reject anything else.
 //
-// Slice 1 scope: only the `add: …` intent does work (creates a Notion card).
-// `go` / `yes` requires a PM-proposed card in state — which won't exist until
-// the morning-thread slice ships. Everything else is logged to the
-// transcript with a placeholder reply.
+// Intents:
+//   add: <title>  — create a Notion card in Backlog
+//   go / yes / ok — claim the PM-proposed card (Engineer fires via Notion webhook)
+//   free-text     — route to the PM LLM for a conversational reply; may swap
+//                   the proposed card if the operator pushes back
 
 type TelegramMessage = {
   message_id: number;
@@ -89,6 +91,27 @@ async function handleAdd(title: string): Promise<string> {
   return `🔵 Card created in Backlog: "${card.title}"\n${card.url}`;
 }
 
+async function handleFreeText(
+  convo: PmConversation,
+  userText: string,
+): Promise<{ reply: string; newProposedCardId: string | null | undefined }> {
+  const backlog = await listBacklog("Backlog");
+  const result = await runPm({
+    backlog,
+    currentProposedCardId: convo.proposedCardId,
+    mode: {
+      kind: "reply",
+      transcript: convo.transcript,
+      latestUserMessage: userText,
+    },
+  });
+  // undefined = don't touch proposedCardId; null/string = update it.
+  // If the LLM returns null, that's a chat-only reply and we leave the
+  // existing proposal alone (operator can still reply `go` to claim it).
+  const newProposedCardId = result.card_id ? result.card_id : undefined;
+  return { reply: `🔵 ${result.message}`, newProposedCardId };
+}
+
 export async function POST(req: Request) {
   const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
   if (!expected) {
@@ -137,8 +160,11 @@ export async function POST(req: Request) {
     } else if (intent.kind === "add") {
       reply = await handleAdd(intent.title);
     } else {
-      reply =
-        "Noted. The PM agent's conversational layer ships next — for now I only understand `add: <description>` and `go` (after a card is proposed).";
+      const ft = await handleFreeText(convo, msg.text);
+      reply = ft.reply;
+      if (ft.newProposedCardId !== undefined) {
+        await setProposedCard(convo.id, ft.newProposedCardId);
+      }
     }
   } catch (e) {
     console.error("[telegram-webhook] handler error", e);

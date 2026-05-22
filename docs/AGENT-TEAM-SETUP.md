@@ -251,7 +251,7 @@ with its URL.
 |---|---|
 | `add: <title>` | Creates a Notion card in Backlog, replies with URL |
 | `go` / `yes` / `ok` | Claims the PM-proposed card → Engineer fires |
-| anything else | Logs the turn, replies with a placeholder |
+| anything else | Routes to the PM LLM with full transcript + backlog. PM replies conversationally and may swap the proposed card if you push back ("do the folders one instead", "not that, the persona bug first"). |
 
 ### Wiring up the PM morning agent
 
@@ -413,18 +413,14 @@ that needs an engineer to translate isn't documentation.
 
 To keep scope honest, these are things you might expect but won't find:
 
-- **No mid-task conversation with the Engineer.** Even with inbound
-  Telegram wired up, the Engineer cannot pause mid-task and ask a
+- **No mid-task conversation with the Engineer.** Even with the PM
+  layer wired up, the Engineer itself cannot pause mid-task and ask a
   question. It either makes a clean decision or exits before editing.
   Resume-on-reply is a future slice.
-- **The inbound channel only handles `add:` and `go`.** Free-text gets
-  a placeholder reply — there's no LLM behind the conversation itself
-  yet. The PM agent runs once a day as a one-shot synthesis, not as
-  an ongoing back-and-forth.
-- **No conversational PM.** The morning thread is one message ("I
-  propose X because Y. Go?"). You reply `go` or move a different card
-  yourself. The PM doesn't iterate vague ideas into sharp acceptance
-  criteria — you still write the cards.
+- **No plan-PR drafting.** The PM can swap which card to work on next
+  and answer questions about the backlog, but it can't open a PR
+  against your roadmap doc when you say "after folders we should X".
+  That's a future slice.
 - **No PM agent.** There's no agent that talks to you in the morning,
   reviews backlog, or proposes priorities. You write the cards
   yourself.
@@ -466,12 +462,10 @@ get expensive, tighten the prompt or use prompt caching.
   evidence you need it.
 - **If quality drops.** Add an eval suite (golden inputs + scored
   outputs) before scaling concurrency.
-- **If you want the PM to converse, not just announce.** Today the
-  morning thread is one-shot: it proposes, you reply `go` or move a
-  different card yourself. A conversational PM would let you text back
-  "do Y instead" or "wait — what's the rationale on X?" and have the
-  LLM iterate. That's an extension of the free-text branch in the
-  inbound webhook.
+- **If you want the PM to draft plan PRs.** When you text something
+  like "after folders we should X", the PM today just talks about it.
+  A plan-PR layer would open a real GitHub PR against your roadmap
+  doc with the proposed edit, for you to merge.
 - **If you want the Engineer to resume after a 🟡 question.** Today
   the Engineer exits and parks the card when it hits a BLOCKING
   question. A resume path would let your Telegram reply re-dispatch
