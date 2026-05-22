@@ -57,7 +57,7 @@ Rules:
 - Request at most ONE mutating action at a time. After it resolves, continue.
 - Never invent ids, folder paths, rule ids, or sender addresses. If you need one, look it up with a read tool first.
 - When you need ANY clarification, you MUST call the \`ask_user\` tool with the question and 2–4 short candidate answers — never ask a clarifying question as plain assistant text. The user can still type a free answer instead of clicking one. Only skip \`ask_user\` if there are genuinely no plausible candidate answers to offer.
-- When the user volunteers a durable personal fact (their name, what to call them, the name they've given you, their occupation, a sentence of personal context), call \`remember_about_user\` once with a concise note. Never interrogate for these facts — only capture what the user offers. Don't re-ask anything already in the soul-context below.
+- When the user volunteers or corrects a durable personal fact about themselves (their name, what to call them, the name they've given you, occupation, a sentence of personal context), call \`update_persona\` once with the new FULL persona text — fold the new fact into everything still true, don't append fragments. Never interrogate for these facts — only capture what the user offers. Don't re-volunteer anything already in the persona-context below.
 - Cite memories inline as [m<id>] when you rely on one.
 - Be concise and answer in the user's language.`;
 
@@ -69,7 +69,7 @@ Fixed order:
 
 1. **Connect mailbox.** If NOT connected, call \`connect_mailbox\` and stop. Do nothing else until it's connected.
 
-2. **Warm intro + name.** Once connected, if no \`soul\` memory yet, introduce yourself in one short sentence and ask: *"What should I call you?"* — free text, NOT an \`ask_user\` (names aren't a choice). When they reply, immediately call \`remember_about_user\` with their preferred name (one concise note). Then, in the same next message, gently offer: *"Want to give me a name too, or shall I just stay 'your mailbox agent'? Either's good."* — also free text. If they name you, call \`remember_about_user\` with that too; if they decline, just continue — never push.
+2. **Warm intro + name.** Once connected, if the \`name\` answer is not yet saved, introduce yourself in one short sentence and ask: *"What should I call you?"* — free text, NOT an \`ask_user\` (names aren't a choice). When they reply, immediately call \`save_onboarding_answer key: name\` with their preferred name. Then, in the same next message, gently offer: *"Want to give me a name too, or shall I just stay 'your mailbox agent'? Either's good."* — also free text. If they name you, call \`save_onboarding_answer key: bot_name\` with it; if they decline, just continue — never push.
 
 3. **Questionnaire — three button questions.** Ask these one at a time, in order, ALWAYS via \`ask_user\`. Each option must carry a one-line \`hint\` and you should mark one option \`recommended: true\` with a hint that starts with the reason:
    a. \`mailbox_type\` — "What kind of mailbox is this?" e.g. Personal / Work / Mixed (recommend Mixed for first runs: *"covers both — you can sharpen later"*). \`save_onboarding_answer key: mailbox_type\`.
@@ -78,7 +78,7 @@ Fixed order:
 
 4. **Sacred — generic buttons.** \`ask_user\` for \`sacred\` with generic options + hints, e.g. *"Nothing — you decide"* (recommend: *"start clean; we'll add exceptions in chat once I know your mailbox"*), *"My personal & family contacts"*, *"Specific folders — I'll name them"*. Then \`save_onboarding_answer key: sacred\`.
 
-5. **Optional personal context.** ONE gentle prompt, explicitly skippable. Use \`ask_user\` with the question *"Last thing — want to tell me a bit about what you do, or your world, so I read your senders better?"* and exactly ONE option: \`label: "Skip — let's just start"\`, \`hint: "totally fine; we can fill this in later through chat"\`. The user can click Skip OR type a free answer. If they share something, call \`remember_about_user\` with a concise note. If they skip, acknowledge briefly and move on. Never re-ask.
+5. **Optional personal context.** ONE gentle prompt, explicitly skippable. Use \`ask_user\` with the question *"Last thing — want to tell me a bit about what you do, or your world, so I read your senders better?"* and exactly ONE option: \`label: "Skip — let's just start"\`, \`hint: "totally fine; we can fill this in later through chat"\`. The user can click Skip OR type a free answer. If they share something, call \`save_onboarding_answer key: personal_context\` with a concise note. If they skip, acknowledge briefly and move on. Never re-ask.
 
 6. **Pipeline.** Call \`run_pipeline\`. It scans + classifies the mailbox, streams progress, and presents a draft persona card. Stop after calling it.
 
@@ -126,21 +126,17 @@ export async function onboardingState(userId: string): Promise<{
   active: boolean;
   connected: boolean;
   answered: string[];
-  hasSoul: boolean;
   folderSnapshot: { count: number; samples: string[] } | null;
 }> {
   const profile = await listMemoriesPg(userId, { kind: "user_profile", limit: 1 });
   if (profile.length > 0)
-    return { active: false, connected: true, answered: [], hasSoul: true, folderSnapshot: null };
+    return { active: false, connected: true, answered: [], folderSnapshot: null };
 
   const prefs = await listMemoriesPg(userId, { kind: "user_pref", limit: 50 });
   const answered = prefs
     .map((p) => p.key ?? "")
     .filter((k) => k.startsWith("onboarding:"))
     .map((k) => k.replace("onboarding:", ""));
-
-  const soul = await listMemoriesPg(userId, { kind: "soul", limit: 1 });
-  const hasSoul = soul.length > 0;
 
   let connected = false;
   try {
@@ -161,7 +157,7 @@ export async function onboardingState(userId: string): Promise<{
     folderSnapshot = await loadOrFetchFolderSnapshot(userId);
   }
 
-  return { active: true, connected, answered, hasSoul, folderSnapshot };
+  return { active: true, connected, answered, folderSnapshot };
 }
 
 const SYSTEM_FOLDER_NAMES = new Set([
@@ -518,24 +514,22 @@ export async function* streamLoop(
     const snapshot = onb.folderSnapshot
       ? ` mailbox folder snapshot: ${onb.folderSnapshot.count} user-created folders, sample names: ${onb.folderSnapshot.samples.map((n) => `"${n}"`).join(", ") || "(none)"}.`
       : "";
-    const state = `STATE — mailbox connected: ${onb.connected ? "yes" : "NO"}; soul memory (name + any volunteered context): ${
-      onb.hasSoul ? "saved" : "NOT yet"
-    }; questionnaire answers saved: ${onb.answered.length ? onb.answered.join(", ") : "none"}.${snapshot}`;
+    const state = `STATE — mailbox connected: ${onb.connected ? "yes" : "NO"}; onboarding answers saved: ${onb.answered.length ? onb.answered.join(", ") : "none"}.${snapshot}`;
     config.systemPrompt = withGuardrail(`${ONBOARDING_SYSTEM_PROMPT}\n\n${state}`);
   }
 
-  const soulMems = await listMemoriesPg(userId, { kind: "soul", limit: 1 });
-  const soulText = soulMems[0]?.content?.trim() ?? "";
+  const personaMems = await listMemoriesPg(userId, { kind: "user_profile", limit: 1 });
+  const personaText = personaMems[0]?.content?.trim() ?? "";
 
   const { recent, summaryText } = await rollUpHistory(userId, threadId, history, config);
   // Anthropic only accepts a single `system` payload, so consolidate the base
-  // prompt + soul context + rolling summary into ONE SystemMessage. Multiple
+  // prompt + persona context + rolling summary into ONE SystemMessage. Multiple
   // consecutive SystemMessages trigger
   // "System messages are only permitted as the first passed message".
   const systemSections = [config.systemPrompt];
-  if (soulText) {
+  if (personaText) {
     systemSections.push(
-      `What you know about this user (use their name and yours if they've given one; don't re-ask any of this):\n${soulText}`,
+      `What you know about this user (use their name and yours if they've given one; don't re-ask any of this):\n${personaText}`,
     );
   }
   if (summaryText) {

@@ -142,7 +142,7 @@ export const TOOL_SPECS: ToolSpec[] = [
         key: {
           type: "string",
           description:
-            "stable slug for the question: 'mailbox_type' | 'folder_strategy' | 'cleanup_aggressiveness' | 'sacred'",
+            "stable slug for the question: 'name' | 'bot_name' | 'mailbox_type' | 'folder_strategy' | 'cleanup_aggressiveness' | 'sacred' | 'personal_context'",
         },
         answer: { type: "string", description: "the user's answer, verbatim or lightly normalised" },
       },
@@ -151,19 +151,19 @@ export const TOOL_SPECS: ToolSpec[] = [
     },
   },
   {
-    name: "remember_about_user",
-    kind: "read",
+    name: "update_persona",
+    kind: "mutate",
     description:
-      "Save a short, durable personal fact the user volunteered (their name, what to call them, the name they gave you, occupation, a sentence of personal context). Auto-runs. Only call when the user actually reveals something durable — never interrogate, never speculate. One concise first-person-about-the-user note per call; the system merges it into a single evolving 'soul' memory.",
+      "Replace the user's persona — a short narrative paragraph addressed to them in the second person ('You ...') that captures their name, what to call you, occupation, and any personal context they've shared. Pass the new FULL persona text: fold the new fact into everything still true, don't just append. The current persona is in the persona-context block of this system prompt; if none is there yet, you may seed a fresh one. Requires user confirmation before it saves.",
     schema: {
       type: "object",
       properties: {
-        note: {
+        content: {
           type: "string",
-          description: "one concise note, e.g. 'Prefers to be called Nick.' or 'Works as a data scientist on observability.'",
+          description: "the new full persona text — a paragraph in the second person, 1–6 sentences",
         },
       },
-      required: ["note"],
+      required: ["content"],
       additionalProperties: false,
     },
   },
@@ -453,33 +453,6 @@ export async function runReadTool(
       const limit = input.limit ? num(input.limit) : 30;
       return listRecentMovesPg(userId, limit);
     }
-    case "remember_about_user": {
-      const note = str(input.note).trim();
-      if (!note) return { ok: false, error: "empty note" };
-      const existing = (await listMemoriesPg(userId, { kind: "soul", limit: 1 })) as Array<{
-        id: number;
-        content: string;
-      }>;
-      const prev = existing[0];
-      const prevLines = prev
-        ? prev.content
-            .split("\n")
-            .map((s) => s.replace(/^[-•]\s*/, "").trim())
-            .filter(Boolean)
-        : [];
-      if (prevLines.some((l) => l.toLowerCase() === note.toLowerCase())) {
-        return { ok: true, memory_id: prev!.id, unchanged: true };
-      }
-      const merged = [...prevLines, note].map((l) => `- ${l}`).join("\n");
-      const newId = await writeMemoryPg(userId, {
-        kind: "soul",
-        key: "soul",
-        content: merged,
-        source: "user_decision",
-      });
-      if (prev) await supersedeMemoryPg(userId, prev.id, newId);
-      return { ok: true, memory_id: newId };
-    }
     case "save_onboarding_answer": {
       const id = await writeMemoryPg(userId, {
         kind: "user_pref",
@@ -545,6 +518,15 @@ export async function previewMutation(
       };
     case "write_memory":
       return { summary: `Save memory: "${str(input.content)}"${input.key ? ` [key=${str(input.key)}]` : ""}.` };
+    case "update_persona": {
+      const next = str(input.content).trim();
+      const prev = (await listMemoriesPg(userId, { kind: "user_profile", limit: 1 }))[0]?.content?.trim() ?? "";
+      const verb = prev ? "Update" : "Save";
+      return {
+        summary: `${verb} your persona${prev ? "" : " (no prior persona yet)"}.`,
+        details: { previous: prev, next },
+      };
+    }
     case "clear_pending_proposals": {
       const all = await getProposalsWithRulesPg(userId);
       const pending = all.filter((p) => p.folder.status === "proposed");
@@ -620,6 +602,18 @@ export async function executeMutation(
         source: "user_decision",
       });
       return { ok: true, memory_id: id };
+    }
+    case "update_persona": {
+      const content = str(input.content).trim();
+      if (!content) throw new Error("persona content is required");
+      const prev = (await listMemoriesPg(userId, { kind: "user_profile", limit: 1 }))[0];
+      const newId = await writeMemoryPg(userId, {
+        kind: "user_profile",
+        content,
+        source: "user_decision",
+      });
+      if (prev) await supersedeMemoryPg(userId, prev.id, newId);
+      return { ok: true, memory_id: newId };
     }
     case "clear_pending_proposals": {
       await clearPendingProposalsPg(userId);
