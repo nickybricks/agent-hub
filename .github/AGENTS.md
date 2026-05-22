@@ -22,6 +22,36 @@ Set these under **Settings → Secrets and variables → Actions → Repository 
 | `SUPABASE_SERVICE_ROLE_KEY` | Service role for ensure-e2e-user. |
 | `DATABASE_URL` | Postgres connection string. |
 
+## Notion webhook setup (real-time trigger)
+
+The auto-trigger uses a Notion webhook → `/api/webhook/notion` on Vercel
+→ GitHub workflow dispatch. The cron is a fallback only.
+
+One-time setup:
+
+1. **Create the subscription.** In your Notion integration settings
+   (notion.so/my-integrations → your integration → Webhooks), create a
+   subscription with URL `https://mail-workflow.vercel.app/api/webhook/notion`
+   and subscribe to page property changes on the backlog database.
+2. **Confirm ownership.** Notion will POST a `verification_token` to the
+   URL. Open Vercel logs for the production deployment, find the line
+   `[notion-webhook] verification_token=…`, copy the token, paste it
+   into Notion's confirmation field.
+3. **Set the signing secret.** Notion shows you a signing secret after
+   the subscription is verified. Add it to Vercel env as
+   `NOTION_WEBHOOK_SECRET` (Production scope). Redeploy.
+4. **Provide the GH token.** Add `AGENT_GH_TOKEN` (same PAT as the GH
+   Actions secret) to Vercel env so the route can dispatch the poller
+   workflow. Redeploy if newly added.
+
+Once configured, any change to the backlog kanban pokes the poller
+within seconds. The poller still does the work of picking the next card
+and dispatching Engineer — the webhook just kicks it.
+
+If the webhook breaks (Vercel down, wrong secret, etc.), the cron
+fallback fires every 30 minutes (and GH free-tier sometimes drags that
+out to 1–4 hours).
+
 ## How to run
 
 **Auto-trigger (default):** move a card to **"working on it"** in the

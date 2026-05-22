@@ -3,9 +3,14 @@ name: Engineer Poller
 # Auto-trigger for the Engineer workflow. Every 5 minutes, looks at Notion
 # cards in "working on it" status and dispatches engineer.yml for the first
 # one if no Engineer run is already in flight.
+# Primary trigger is the Notion webhook → /api/webhook/notion on Vercel,
+# which calls workflow_dispatch directly. The cron is a safety-net only,
+# in case the webhook misses an event or Vercel is down. GH Actions free
+# tier deprioritizes scheduled runs anyway — the observed cadence is
+# 1–4 hours, not the configured */30, so don't lean on it.
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "*/30 * * * *"
   workflow_dispatch:
 
 jobs:
