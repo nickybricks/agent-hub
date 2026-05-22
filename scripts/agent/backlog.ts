@@ -145,6 +145,34 @@ export async function markDone(pageId: string) {
   await setStatus(pageId, STATUS.done);
 }
 
+export async function createCard(opts: {
+  title: string;
+  priority?: "Hoch" | "Mittel" | "Niedrig";
+  description?: string;
+}): Promise<BacklogItem> {
+  const { dbId } = env();
+  const properties: Record<string, unknown> = {
+    Task: { title: [{ type: "text", text: { content: opts.title } }] },
+    Status: { status: { name: STATUS.backlog } },
+  };
+  if (opts.priority) {
+    properties.Priority = { select: { name: opts.priority } };
+  }
+  if (opts.description) {
+    properties.Description = {
+      rich_text: [{ type: "text", text: { content: opts.description } }],
+    };
+  }
+  const page = (await notion(`/pages`, {
+    method: "POST",
+    body: JSON.stringify({
+      parent: { database_id: dbId },
+      properties,
+    }),
+  })) as NotionPage;
+  return extractItem(page);
+}
+
 export async function park(pageId: string) {
   // Move a card out of "working on it" after a failed/no-op run so the
   // poller doesn't immediately re-dispatch it. User can re-move it once

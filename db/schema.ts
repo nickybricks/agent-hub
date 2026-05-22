@@ -2,6 +2,7 @@ import {
   boolean,
   index,
   integer,
+  jsonb,
   pgTable,
   primaryKey,
   real,
@@ -301,6 +302,24 @@ export const chatMessages = pgTable(
     accountId: uuid("account_id"),
   },
   (t) => [index("idx_chat_messages_thread").on(t.threadId, t.id)]
+);
+
+// Agent-team Phase 5 — Telegram <-> PM agent conversation state.
+// One row per open conversation thread. Operator-level data (single bot
+// owner), so no user_id / RLS — server-only writes via service role.
+export const pmConversations = pgTable(
+  "pm_conversations",
+  {
+    id: serial("id").primaryKey(),
+    telegramChatId: text("telegram_chat_id").notNull(),
+    status: text("status").notNull().default("open"), // open | decided | closed
+    proposedCardId: text("proposed_card_id"),
+    decidedCardId: text("decided_card_id"),
+    transcript: jsonb("transcript").notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("idx_pm_convos_chat_status").on(t.telegramChatId, t.status)],
 );
 
 export const toolCalls = pgTable(

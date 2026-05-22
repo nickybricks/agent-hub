@@ -1,0 +1,156 @@
+import { NextResponse } from "next/server";
+import {
+  appendTurn,
+  getOrCreateOpenConversation,
+  markDecided,
+  setProposedCard,
+  type PmConversation,
+} from "@/lib/pm-conversations";
+import { claim, createCard } from "../../../../../scripts/agent/backlog";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+// Receives Telegram updates and routes them to the PM conversation state.
+//
+// Setup:
+//   1. Set TELEGRAM_WEBHOOK_SECRET in Vercel env (any random string).
+//   2. Register the webhook with Telegram, passing the secret:
+//        curl -X POST "https://api.telegram.org/bot<TOKEN>/setWebhook" \
+//          -d url="https://mail-workflow.vercel.app/api/webhook/telegram" \
+//          -d secret_token="<TELEGRAM_WEBHOOK_SECRET>"
+//   3. Telegram echoes the secret back in the X-Telegram-Bot-Api-Secret-Token
+//      header on every delivery. We compare and reject anything else.
+//
+// Slice 1 scope: only the `add: …` intent does work (creates a Notion card).
+// `go` / `yes` requires a PM-proposed card in state — which won't exist until
+// the morning-thread slice ships. Everything else is logged to the
+// transcript with a placeholder reply.
+
+type TelegramMessage = {
+  message_id: number;
+  chat: { id: number | string };
+  text?: string;
+};
+
+type TelegramUpdate = {
+  update_id: number;
+  message?: TelegramMessage;
+  edited_message?: TelegramMessage;
+};
+
+type Intent =
+  | { kind: "go" }
+  | { kind: "add"; title: string }
+  | { kind: "free_text" };
+
+const GO_PATTERNS = /^(go|yes|y|ok|okay|ship it|do it|los|ja)[.!]?$/i;
+const ADD_PATTERN = /^add\s*[:\-]\s*(.+)$/i;
+
+function classify(text: string): Intent {
+  const trimmed = text.trim();
+  if (GO_PATTERNS.test(trimmed)) return { kind: "go" };
+  const addMatch = trimmed.match(ADD_PATTERN);
+  if (addMatch) return { kind: "add", title: addMatch[1].trim() };
+  return { kind: "free_text" };
+}
+
+async function sendReply(chatId: number | string, text: string): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) {
+    console.error("[telegram-webhook] TELEGRAM_BOT_TOKEN not set, skipping reply");
+    return;
+  }
+  const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true }),
+  });
+  if (!res.ok) {
+    console.error(`[telegram-webhook] sendMessage ${res.status}: ${await res.text()}`);
+  }
+}
+
+async function handleGo(
+  convo: PmConversation,
+  chatId: number | string,
+): Promise<string> {
+  if (!convo.proposedCardId) {
+    return "No card proposed yet. The PM agent's morning thread isn't online yet — for now, move a card to \"working on it\" in Notion directly, or text `add: <description>` to create one.";
+  }
+  await claim(convo.proposedCardId);
+  await markDecided(convo.id, convo.proposedCardId);
+  void chatId;
+  return "🟢 Card moved to \"working on it\" — Engineer is dispatching.";
+}
+
+async function handleAdd(title: string): Promise<string> {
+  const card = await createCard({ title });
+  return `🔵 Card created in Backlog: "${card.title}"\n${card.url}`;
+}
+
+export async function POST(req: Request) {
+  const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
+  if (!expected) {
+    return NextResponse.json(
+      { ok: false, reason: "TELEGRAM_WEBHOOK_SECRET not set" },
+      { status: 500 },
+    );
+  }
+  const got = req.headers.get("x-telegram-bot-api-secret-token");
+  if (got !== expected) {
+    return NextResponse.json({ ok: false, reason: "invalid_secret" }, { status: 401 });
+  }
+
+  let update: TelegramUpdate;
+  try {
+    update = (await req.json()) as TelegramUpdate;
+  } catch {
+    return NextResponse.json({ ok: false, reason: "invalid_json" }, { status: 400 });
+  }
+
+  const msg = update.message ?? update.edited_message;
+  if (!msg?.text) {
+    return NextResponse.json({ ok: true, skipped: "no_text" });
+  }
+
+  const allowedChat = process.env.TELEGRAM_CHAT_ID;
+  const chatIdStr = String(msg.chat.id);
+  if (allowedChat && chatIdStr !== allowedChat) {
+    console.warn(`[telegram-webhook] reject chat ${chatIdStr} (expected ${allowedChat})`);
+    return NextResponse.json({ ok: true, skipped: "chat_not_allowed" });
+  }
+
+  const convo = await getOrCreateOpenConversation(chatIdStr);
+  const ts = new Date().toISOString();
+  await appendTurn(convo.id, { role: "user", text: msg.text, ts });
+
+  const intent = classify(msg.text);
+  let reply: string;
+  try {
+    if (intent.kind === "go") {
+      reply = await handleGo(convo, msg.chat.id);
+      if (convo.proposedCardId) {
+        // markDecided already ran; clear proposed for the next thread.
+        await setProposedCard(convo.id, null);
+      }
+    } else if (intent.kind === "add") {
+      reply = await handleAdd(intent.title);
+    } else {
+      reply =
+        "Noted. The PM agent's conversational layer ships next — for now I only understand `add: <description>` and `go` (after a card is proposed).";
+    }
+  } catch (e) {
+    console.error("[telegram-webhook] handler error", e);
+    reply = `🔴 Something went wrong: ${(e as Error).message}`;
+  }
+
+  await appendTurn(convo.id, { role: "pm", text: reply, ts: new Date().toISOString() });
+  await sendReply(msg.chat.id, reply);
+
+  return NextResponse.json({ ok: true, intent: intent.kind });
+}
+
+export async function GET() {
+  return NextResponse.json({ ok: true, hint: "POST endpoint for Telegram webhooks" });
+}
