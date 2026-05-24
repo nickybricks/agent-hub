@@ -152,9 +152,9 @@ export const TOOL_SPECS: ToolSpec[] = [
   },
   {
     name: "update_persona",
-    kind: "mutate",
+    kind: "read",
     description:
-      "Replace the user's persona — a short narrative paragraph addressed to them in the second person ('You ...') that captures their name, what to call you, occupation, and any personal context they've shared. Pass the new FULL persona text: fold the new fact into everything still true, don't just append. The current persona is in the persona-context block of this system prompt; if none is there yet, you may seed a fresh one. Requires user confirmation before it saves.",
+      "Replace the user's persona — a short narrative paragraph addressed to them in the second person ('You ...') that captures their name, what to call you, occupation, and any personal context they've shared. Pass the new FULL persona text: fold the new fact into everything still true, don't just append. The current persona is in the persona-context block of this system prompt; if none is there yet, you may seed a fresh one. Auto-runs (no confirmation) — persona is low-stakes and easily re-corrected in chat.",
     schema: {
       type: "object",
       properties: {
@@ -469,6 +469,18 @@ export async function runReadTool(
       };
       return listMemoriesPg(userId, filter);
     }
+    case "update_persona": {
+      const content = str(input.content).trim();
+      if (!content) throw new Error("persona content is required");
+      const prev = (await listMemoriesPg(userId, { kind: "user_profile", limit: 1 }))[0];
+      const newId = await writeMemoryPg(userId, {
+        kind: "user_profile",
+        content,
+        source: "user_decision",
+      });
+      if (prev) await supersedeMemoryPg(userId, prev.id, newId);
+      return { ok: true, memory_id: newId };
+    }
     default:
       throw new Error(`unknown read tool: ${name}`);
   }
@@ -518,15 +530,6 @@ export async function previewMutation(
       };
     case "write_memory":
       return { summary: `Save memory: "${str(input.content)}"${input.key ? ` [key=${str(input.key)}]` : ""}.` };
-    case "update_persona": {
-      const next = str(input.content).trim();
-      const prev = (await listMemoriesPg(userId, { kind: "user_profile", limit: 1 }))[0]?.content?.trim() ?? "";
-      const verb = prev ? "Update" : "Save";
-      return {
-        summary: `${verb} your persona${prev ? "" : " (no prior persona yet)"}.`,
-        details: { previous: prev, next },
-      };
-    }
     case "clear_pending_proposals": {
       const all = await getProposalsWithRulesPg(userId);
       const pending = all.filter((p) => p.folder.status === "proposed");
@@ -602,18 +605,6 @@ export async function executeMutation(
         source: "user_decision",
       });
       return { ok: true, memory_id: id };
-    }
-    case "update_persona": {
-      const content = str(input.content).trim();
-      if (!content) throw new Error("persona content is required");
-      const prev = (await listMemoriesPg(userId, { kind: "user_profile", limit: 1 }))[0];
-      const newId = await writeMemoryPg(userId, {
-        kind: "user_profile",
-        content,
-        source: "user_decision",
-      });
-      if (prev) await supersedeMemoryPg(userId, prev.id, newId);
-      return { ok: true, memory_id: newId };
     }
     case "clear_pending_proposals": {
       await clearPendingProposalsPg(userId);
