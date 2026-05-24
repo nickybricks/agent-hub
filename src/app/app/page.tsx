@@ -7,12 +7,13 @@ import ChatPanel from "@/components/ChatPanel";
 import SettingsModal from "@/components/SettingsModal";
 import { DataSyncProvider, useProposingCount } from "@/components/DataSync";
 import HomePane from "@/components/panes/HomePane";
+import FoldersPane from "@/components/panes/FoldersPane";
 import ProposalsPane from "@/components/panes/ProposalsPane";
 import AuditPane from "@/components/panes/AuditPane";
 import HistoryPane from "@/components/panes/HistoryPane";
 import ProfilePane from "@/components/panes/ProfilePane";
 
-const TABS = ["Home", "Proposals", "Audit", "Profile", "History"] as const;
+const TABS = ["Home", "Folders", "Proposals", "Audit", "Profile", "History"] as const;
 type Tab = (typeof TABS)[number];
 
 const CHAT_KEY = "mi:chatWidth";
@@ -72,6 +73,7 @@ export default function AppShell() {
 
   const pane: Record<Tab, ReactNode> = {
     Home: <HomePane active={tab === "Home"} onNavigate={(t) => select(t as Tab)} />,
+    Folders: <FoldersPane active={tab === "Folders"} />,
     Proposals: <ProposalsPane active={tab === "Proposals"} />,
     Audit: <AuditPane active={tab === "Audit"} />,
     Profile: <ProfilePane active={tab === "Profile"} />,

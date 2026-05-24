@@ -1,56 +1,76 @@
 # Plan
 
 ## In plain English (no jargon)
-Right now the Profile tab in the app shows the same idea in two places: a short paragraph the assistant wrote about you (the "persona"), and a bullet list of personal facts you've told the chat (the "About you" section). When you correct yourself in chat (e.g. "actually I'm a designer, not a developer"), only the bullet list updates — the paragraph stays wrong, so the two sections disagree.
+Right now, once the app accepts a folder proposal, the user has no place in the app to see "what does my mailbox actually look like now?" The Home tab shows overall numbers, Proposals shows what's *pending*, Audit and History show problems and past actions — but the day-to-day folder structure itself is invisible.
 
-This change merges them into one. The Profile tab will show a single "Your persona" section. When you correct a fact in chat, the assistant updates the whole persona paragraph (with your confirmation), and the Profile tab refreshes to match.
+This change adds a new **Folders** tab between Home and Proposals. It lists every folder in the user's mailbox as a tree (top-level folders with their sub-folders nested underneath), showing for each one how many messages it holds and who the top senders are. Clicking a folder opens a popup that shows the routing rules that send mail there — and the user can tweak, turn on/off, delete, or add rules right inside that popup. Rules are saved straight to our database; the actual mailbox folders are not renamed/created/deleted (that comes later in Phase 3).
 
 ## My interpretation of the card
-Two memory kinds (`soul` and `user_profile`) currently hold overlapping information. The card asks to:
-1. Keep one canonical store (use the existing `user_profile` kind).
-2. Add a new mutating chat tool `update_persona` that replaces the persona text (requires user confirmation, per the card's "mutate tool" + "confirms" wording).
-3. Retire `remember_about_user` (the card explicitly prefers "drop it" over "trigger re-synth").
-4. Remove the "About you" section from the Profile tab — one inline-editable section only.
-5. The onboarding persona-confirm flow already writes to `user_profile` — keep that behaviour.
-6. The chat agent's system prompt currently injects the `soul` memory as "what you know about this user" context. Switch that to inject the `user_profile` (the unified persona) instead.
+The card is explicit:
+- New tab between **Home** and **Proposals**.
+- Tree of current mailbox folders (from the `mailboxes` table — what already exists in the user's account), grouped by splitting names on `/`. Top-level rows; sub-rows revealed by accordion.
+- Per row: name, message count, short summary (top senders + top categories).
+- Click a row → modal with: rules whose `target_folder` matches this folder + sample subjects per rule.
+- Inside the modal: inline edit (match_value, target_folder, confidence), toggle accepted ↔ rejected (active ↔ inactive), delete the rule, add a new rule. All Postgres-only via `folder_rules`.
+- Folder-level write actions (rename / delete / create the actual mailbox folder) are **disabled with a "coming once folder writes are wired" tooltip**.
+- Empty state: "Accept a proposal to start building your structure."
+- "Phase-3 detail: accepted proposals should move out of Proposals tab onto this Folders tab" — I read this as a forward-looking note about the eventual destination, **not** an authorization to remove proposals from the Proposals pane right now. The Proposals pane today filters/lists by `proposed_folders.status`; touching that is out of scope.
 
 Conservative reads:
-- "Retire `remember_about_user`" = remove the tool spec + handler. The card is explicit. I will NOT drop the `soul` memory rows from the database — that's destructive and not authorized. Soul rows simply become unread/unwritten by app code; they remain in `agent_memory` for forensic value.
-- During onboarding, the assistant still needs a place to remember the user's name + bot nickname after they answer the warm-intro questions. Since `remember_about_user` is gone, I'll route those answers through the existing `save_onboarding_answer` tool with new keys (`name`, `bot_name`, `personal_context`). They become `user_pref` rows like the rest of the questionnaire, and `synthesizePersona` already reads `user_pref` answers — so the name and any context fold naturally into the synthesised persona paragraph.
+- I will not delete rule rows; I will treat the `status` field as the canonical active/inactive switch (accepted = active, rejected = inactive). For "delete rule", the card lists it as a separate action from "toggle active/inactive" — so I'll add a DELETE endpoint that actually removes the row. Both LLM-proposed and user-added rules can be removed.
+- The "edit confidence" affordance — confidence is a number the LLM sets; user-editable confidence is an unusual UX choice. The card lists it explicitly, so I'll wire it (number input in the rule editor) and let the user set it to `null` by clearing the field. No revalidation magic — it's just stored.
+- "Top categories" per folder: I'll derive from `senders.category` joined to the messages in that mailbox (top 3 by message count). New small read helper.
 
 ## My approach
-1. **`src/lib/chat-tools.ts`** — remove `remember_about_user` (spec + handler in `runReadTool`). Add `update_persona` as a `mutate` tool: takes `content` (the new full persona text), preview shows a truncated diff-style summary, execute supersedes the prior `user_profile` memory with the new one. If no persona exists yet, it inserts one.
-2. **`src/lib/chat-agent.ts`** —
-   - Replace the `soul`-memory read + system-prompt injection block with a `user_profile` read + injection block ("What you know about this user…"). Same shape, different memory kind.
-   - In `onboardingState`, drop the `hasSoul` field. Use `answered` (now including `name`) to gate the warm-intro step.
-   - Update the STATE line: replace "soul memory: saved/NOT yet" with the existing answered-list (which now carries the warm-intro answers).
-   - Update `SYSTEM_PROMPT`: drop the `remember_about_user` instruction. Add: "When the user corrects or volunteers a durable personal fact about themselves, call `update_persona` once with the new FULL persona text (preserve everything still true, fold in the new fact)."
-   - Update `ONBOARDING_SYSTEM_PROMPT`: step 2 saves via `save_onboarding_answer key: name` (and `bot_name` if offered) instead of `remember_about_user`; step 5 saves via `save_onboarding_answer key: personal_context` instead of `remember_about_user`. Step 1 gate switches from "no soul memory yet" to "no `name` answered yet".
-3. **`src/app/api/mail-analyzer/profile/route.ts`** — drop `soul` from the `ProfilePayload` shape, the `shape()` derivation, and the PUT handler's `soul` branch. Persona-only.
-4. **`src/components/panes/ProfilePane.tsx`** — remove the "About you" section, its state (`soul`, `soulDraft`, `savingSoul`, `saveSoul`), and the `soul` field from the `ProfileData` interface. Keep the "Your persona" section exactly as is (already inline-editable).
-5. **`src/lib/onboarding.ts`** (`synthesizePersona`) — already reads `user_pref` answers and folds them into the prompt. The new `name`/`bot_name`/`personal_context` keys flow in automatically; no change needed beyond the existing loop. Skim the prompt to make sure nothing else needs to fold soul in.
-6. Acceptance check: in dev, ask the chat to correct a fact → confirm the Apply card → flip to the Profile tab → see the updated persona without an F5 reload (the existing `useDataBump` / `useRevalidate` plumbing already does this for other mutate tools).
-7. `npm run lint && npm run typecheck && npm run test:e2e`.
+1. **DB helpers** (`src/lib/analyzer-db-pg.ts`):
+   - Add `listFolderTreePg(userId)` — returns `[{ id, name, msg_count, top_senders, top_categories }]` for every mailbox. Uses the existing pattern (Drizzle `db.execute(sql\`...\`)`).
+   - Add `getRulesForFolderPg(userId, folderName)` — returns the rules whose `target_folder = folderName`, regardless of `status` / `source`. (The proposals route filters `source = 'llm_proposal'`; here I want all rules, including user-added ones.)
+   - Add `getSampleSubjectsForRulePg(userId, ruleId)` — up to 5 sample subjects from messages matching the rule's `match_type` + `match_value`. Mirrors the existing `getMessagesMatchingRulePg` shape but trimmed.
+   - Add `deleteFolderRulePg(userId, ruleId)` — `DELETE FROM folder_rules WHERE id = ... AND user_id = ...`.
+   - Extend `updateFolderRuleMatchPg` (or add a sibling) to also handle `confidence`. Conservative path: extend the existing one to accept an optional confidence and a tri-state target ("set/keep/null"). Keep existing callers unaffected.
+2. **API routes** (Next.js App Router, mirror existing patterns):
+   - `GET /api/mail-analyzer/folders` → list tree (folders + counts + top senders + top categories).
+   - `GET /api/mail-analyzer/folders/[name]` → details for one folder (rules + sample subjects). Name is URL-encoded.
+   - `POST /api/mail-analyzer/folders/[name]/rules` → add a new rule (source `user`, status `accepted`).
+   - `DELETE /api/mail-analyzer/proposals/rule/[id]` → add DELETE handler to the existing route file (the file already does PATCH; adding DELETE keeps the surface unified).
+   - Extend the existing PATCH on `/api/mail-analyzer/proposals/rule/[id]` to also accept `confidence`.
+   - All routes call `getAuthUser()` and bail on missing auth, per `docs/PATTERNS.md`.
+3. **Pane component** (`src/components/panes/FoldersPane.tsx`, new):
+   - Mirror the structure of `ProposalsPane.tsx` (header + body + cards).
+   - Loading / empty states. Empty copy: "Accept a proposal to start building your structure." (real copy, not "No data" — per PATTERNS).
+   - Tree: group rows by first path segment; an expand/collapse caret reveals nested rows. Indent sub-rows by one level. Multi-level paths (`a/b/c`) collapse into a flat two-level view (top + everything under it) — keeps the UI calm. Only one level of nesting is exposed; deeper paths render with their full sub-path string in the sub-row label.
+   - Row content: name, message count (tabular nums), one-line summary line: "top: foo@x.com, bar@y.com · newsletter, marketing".
+   - Clicking a row opens an inline modal (re-use the dimmed-overlay + dialog pattern from `SettingsModal.tsx`).
+   - Modal content: folder name (title), disabled "Rename folder" / "Delete folder" / "New subfolder" buttons with `title="Coming once folder writes are wired."` tooltip; the rules list; an "Add rule" footer.
+   - Each rule row in the modal: editable match_value text input, target_folder text input, confidence number input (blank → null), match_type dropdown (sender_email | sender_domain), active toggle, delete button, sample-subjects collapsible.
+   - "Add rule" form: same inputs, "Add" button calls POST; defaults: match_type = sender_domain, target_folder = current folder, status = accepted, source = user.
+   - `useRevalidate(active, load)` plumbing like every other pane.
+4. **Tabs array** (`src/app/app/page.tsx`): add `"Folders"` between `"Home"` and `"Proposals"`. Add the pane to the `pane` record.
+5. Manual / e2e check at the end.
 
 ## Files I expect to touch
-- `src/lib/chat-tools.ts`
-- `src/lib/chat-agent.ts`
-- `src/app/api/mail-analyzer/profile/route.ts`
-- `src/components/panes/ProfilePane.tsx`
-
-Maybe (no change expected, only re-reading): `src/lib/onboarding.ts`, `src/app/api/mail-analyzer/onboarding/persona/route.ts`.
+- `src/lib/analyzer-db-pg.ts` — add 4 new helpers (+ extend one).
+- `src/app/api/mail-analyzer/folders/route.ts` — new (list).
+- `src/app/api/mail-analyzer/folders/[name]/route.ts` — new (detail).
+- `src/app/api/mail-analyzer/folders/[name]/rules/route.ts` — new (POST add rule).
+- `src/app/api/mail-analyzer/proposals/rule/[id]/route.ts` — extend (DELETE + confidence in PATCH).
+- `src/components/panes/FoldersPane.tsx` — new.
+- `src/app/app/page.tsx` — add to TABS array + import.
 
 ## Explicitly out of scope
-- **Not dropping the `soul` memory kind from the database** (`MemoryKind` union in `src/lib/analyzer-db.ts`) or doing any data migration. Existing `soul` rows stay where they are; the app simply stops reading or writing them. Removing the type literal would be a wider refactor of the memory schema, which the card didn't ask for, and dropping rows is destructive without authorization.
-- **Not touching `src/lib/greeting.ts`** — it already reads `user_profile`, so it gets the unified persona for free.
-- **Not touching `src/agent/propose-structure.ts`** — same: it already reads `user_profile`.
-- **Not changing `src/app/api/mail-analyzer/onboarding/persona/route.ts`** — already writes `user_profile`.
-- **Not updating `docs/PATTERNS.md` or `docs/CHAT-FLOW.md`** — task prompt says don't touch the mandatory-reading docs; I'll log the doc-drift note in `decisions.md` as a follow-up.
-- **Not building a re-synth path** ("append fact + trigger persona re-synth"). The card calls that out explicitly as the alternative and prefers "drop it and have bot call update_persona with new full text" — I'm going with the simpler path.
-- **Not adding a free-text capture mechanism in chat for personal facts pre-onboarding** — the existing `save_onboarding_answer` covers the three slots (name, bot_name, personal_context).
+- **No mailbox-write logic** — no rename, delete, or create-folder against the user's mail provider. Phase 3.
+- **Not moving accepted proposals off the Proposals tab.** The card's phase-3 sentence describes the eventual destination; I'm not removing the proposals pane's display of accepted/created folders, and I'm not touching `src/components/panes/ProposalsPane.tsx`.
+- **Not changing `getProposalsWithRulesPg` or any proposals-side route** — those keep working as is.
+- **No drag-and-drop** for rules between folders. The Proposals tab already has that; the card didn't ask for it here, and "click → modal → edit target_folder" already covers reassignment.
+- **No category re-derivation** — top categories per folder uses existing `senders.category` rows. If a folder is full of unclassified senders, the summary line will say "unclassified".
+- **No bulk actions** ("Accept all" / "Apply all") at the folder level — the card asks for per-rule editing only.
+- **Not touching `docs/`, `tasks/`, `.github/`, `package.json` version, or any of the prompt's "do not touch" list.**
 
 ## Open questions / assumptions
-- Assuming `update_persona` should require explicit user confirmation (Apply/Cancel card) because the card calls it a "mutate tool" that "confirms". Friction during a correction is acceptable; mutations of saved memory should be visible.
-- Assuming dropping `remember_about_user` and routing the warm-intro answers through `save_onboarding_answer` is acceptable. The alternative (auto-running `update_persona`) requires a persona to already exist, which it doesn't pre-pipeline.
-- Assuming we should NOT delete pre-existing `soul` rows in the database; the card says "retire" / "drop the tool", not "delete the data". After the change, those rows are orphaned but harmless.
-- The acceptance test ("correcting a fact in chat rewrites displayed persona in Profile tab without reload") relies on the existing `useDataBump` mechanism in `ChatPanel`, which fires after every mutate tool finishes. The Profile tab's `useRevalidate(active, load)` will refetch when it becomes active. This is "no F5 reload"; if the user is staring at the Profile tab while typing in chat, the refetch happens the moment they tab back. I'm reading "without reload" as "no page reload", which matches the existing UX pattern for every other mutate tool.
+- Assuming "current mailbox structure" = rows in the `mailboxes` table (the user's *actual* folders as last scanned). Not `proposed_folders` (that's the proposal staging area).
+- Assuming the modal should list rules **across all statuses and sources**, not just `proposed` + `llm_proposal`. The card describes the modal as showing "rules routing mail here" — a user-added rule routes mail to that folder too, so it belongs in the list.
+- Assuming the tree's "nesting" is the simple single-level split that exists today in `mailboxes.name` (`Inbox/Promotions`, `Inbox/Travel/Flights`). I'll group by first segment; anything beyond becomes the sub-row label as-is. A deeper tree wasn't asked for, would balloon the design, and the source data is flat strings.
+- Assuming the disabled folder-level buttons (rename / delete / new subfolder) are sufficient to surface the Phase-3 gap. The PRODUCT.md north-star says "show disabled with a 'coming once folder writes are wired' tooltip — don't hide the gap."
+- Assuming **the `getProposalFolderRowsPg` name** in the card refers to the existing helper that pulls mailboxes-with-counts. The name is misleading (it's about *mailboxes*, not *proposals*), but it's the one cited in the card.
+- Assuming sample subjects come from un-moved messages (consistent with `getMessagesMatchingRulePg`); the goal is to show the user what would route, not historical movement.
+- I will **not** add a "confidence" editor inside the inline modal if it adds clutter without value — but the card lists it, so it goes in, with a small label.
