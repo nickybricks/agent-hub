@@ -327,6 +327,18 @@ export default function ChatPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pipeline?.phase, persona, personaRetry]);
 
+  // Defensive watchdog: if persona_ready persists 5s without `persona` being
+  // set, force one refetch. Covers the case where the original draft POST
+  // hangs / its response is lost (Vercel timeout, network blip) — without
+  // this, the in-flight IIFE never settles, its post-await retry timer is
+  // never scheduled, and the spinner strands. Deps deliberately omit
+  // `personaRetry` so this fires at most once per entry into persona_ready.
+  useEffect(() => {
+    if (pipeline?.phase !== "persona_ready" || persona) return;
+    const id = setTimeout(() => setPersonaRetry((n) => n + 1), 5000);
+    return () => clearTimeout(id);
+  }, [pipeline?.phase, persona]);
+
   // Elapsed-time counter. Anchors on the first tick after pipeline appears,
   // resets when pipeline clears or finishes — so minutes-long waits show
   // movement instead of a frozen status line.
