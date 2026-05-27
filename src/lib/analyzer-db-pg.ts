@@ -1132,6 +1132,154 @@ export async function getTopSendersForMailboxPg(
   }));
 }
 
+// ── folders tab: tree view + per-folder rules / samples ──────────────────────
+
+export interface FolderTreeRow {
+  id: number;
+  name: string;
+  msg_count: number;
+  top_senders: { sender_email: string; c: number }[];
+  top_categories: { category: string; c: number }[];
+}
+
+/**
+ * One pass to power the Folders tab: every mailbox the user has, with message
+ * count + top senders + top categories baked in. One grouped query per signal,
+ * stitched in JS — avoids a per-row N+1.
+ */
+export async function listFolderTreePg(userId: string): Promise<FolderTreeRow[]> {
+  const db = getDrizzleDb();
+  const folderRows = (await db.execute(sql`
+    SELECT mb.id, mb.name, COUNT(m.id) AS msg_count
+    FROM mailboxes mb
+    LEFT JOIN messages m ON m.mailbox_id = mb.id AND m.user_id = ${userId}
+    WHERE mb.user_id = ${userId}
+    GROUP BY mb.id
+    ORDER BY mb.name
+  `)) as unknown as { id: number; name: string; msg_count: number }[];
+
+  if (folderRows.length === 0) return [];
+
+  const senderRows = (await db.execute(sql`
+    SELECT mailbox_id, sender_email, c FROM (
+      SELECT
+        m.mailbox_id,
+        LOWER(m.sender_email) AS sender_email,
+        COUNT(*) AS c,
+        ROW_NUMBER() OVER (PARTITION BY m.mailbox_id ORDER BY COUNT(*) DESC) AS rn
+      FROM messages m
+      WHERE m.user_id = ${userId}
+      GROUP BY m.mailbox_id, LOWER(m.sender_email)
+    ) x WHERE rn <= 3
+  `)) as unknown as { mailbox_id: number; sender_email: string; c: number }[];
+
+  const catRows = (await db.execute(sql`
+    SELECT mailbox_id, category, c FROM (
+      SELECT
+        m.mailbox_id,
+        COALESCE(s.category, 'unclassified') AS category,
+        COUNT(*) AS c,
+        ROW_NUMBER() OVER (PARTITION BY m.mailbox_id ORDER BY COUNT(*) DESC) AS rn
+      FROM messages m
+      LEFT JOIN senders s ON LOWER(m.sender_email) = s.email AND s.user_id = ${userId}
+      WHERE m.user_id = ${userId}
+      GROUP BY m.mailbox_id, COALESCE(s.category, 'unclassified')
+    ) x WHERE rn <= 3
+  `)) as unknown as { mailbox_id: number; category: string; c: number }[];
+
+  const sendersByMb = new Map<number, { sender_email: string; c: number }[]>();
+  for (const r of senderRows) {
+    const arr = sendersByMb.get(Number(r.mailbox_id)) ?? [];
+    arr.push({ sender_email: r.sender_email, c: Number(r.c) });
+    sendersByMb.set(Number(r.mailbox_id), arr);
+  }
+  const catsByMb = new Map<number, { category: string; c: number }[]>();
+  for (const r of catRows) {
+    const arr = catsByMb.get(Number(r.mailbox_id)) ?? [];
+    arr.push({ category: r.category, c: Number(r.c) });
+    catsByMb.set(Number(r.mailbox_id), arr);
+  }
+
+  return folderRows.map((f) => ({
+    id: Number(f.id),
+    name: f.name,
+    msg_count: Number(f.msg_count),
+    top_senders: sendersByMb.get(Number(f.id)) ?? [],
+    top_categories: catsByMb.get(Number(f.id)) ?? [],
+  }));
+}
+
+/**
+ * All rules pointing at a given folder name, any status / any source. Differs
+ * from getProposalsWithRulesPg which filters source='llm_proposal' for the
+ * Proposals pane — here we want user-added rules too.
+ */
+export async function getRulesForFolderPg(
+  userId: string,
+  folderName: string,
+): Promise<FolderRule[]> {
+  const db = getDrizzleDb();
+  const rows = await db.execute(sql`
+    SELECT * FROM folder_rules
+    WHERE user_id = ${userId} AND target_folder = ${folderName}
+    ORDER BY status, id
+  `);
+  return rows as unknown as FolderRule[];
+}
+
+/** Up to N recent subjects matching a rule's match clause, in date desc. */
+export async function getSampleSubjectsForRulePg(
+  userId: string,
+  rule: FolderRule,
+  limit: number = 5,
+): Promise<{ id: string; subject: string | null; sender_email: string; date_received: string }[]> {
+  const db = getDrizzleDb();
+  const rows =
+    rule.match_type === "sender_email"
+      ? await db.execute(sql`
+          SELECT m.id, m.subject, m.sender_email, m.date_received
+          FROM messages m
+          WHERE m.user_id = ${userId}
+            AND LOWER(m.sender_email) = ${rule.match_value.toLowerCase()}
+          ORDER BY m.date_received DESC
+          LIMIT ${limit}
+        `)
+      : await db.execute(sql`
+          SELECT m.id, m.subject, m.sender_email, m.date_received
+          FROM messages m
+          WHERE m.user_id = ${userId}
+            AND LOWER(SUBSTRING(m.sender_email FROM POSITION('@' IN m.sender_email) + 1))
+                = ${rule.match_value.toLowerCase()}
+          ORDER BY m.date_received DESC
+          LIMIT ${limit}
+        `);
+  return rows as unknown as {
+    id: string;
+    subject: string | null;
+    sender_email: string;
+    date_received: string;
+  }[];
+}
+
+export async function deleteFolderRulePg(userId: string, id: number): Promise<void> {
+  const db = getDrizzleDb();
+  await db.execute(sql`
+    DELETE FROM folder_rules WHERE id = ${id} AND user_id = ${userId}
+  `);
+}
+
+export async function updateFolderRuleConfidencePg(
+  userId: string,
+  id: number,
+  confidence: number | null,
+): Promise<void> {
+  const db = getDrizzleDb();
+  await db.execute(sql`
+    UPDATE folder_rules SET confidence = ${confidence}
+    WHERE id = ${id} AND user_id = ${userId}
+  `);
+}
+
 export async function getCategoryDistributionPg(
   userId: string,
 ): Promise<{ category: string; senders: number; msgs: number }[]> {
