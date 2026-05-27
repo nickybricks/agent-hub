@@ -6,6 +6,18 @@ When the agent has to make a new judgment call mid-task, it appends an entry her
 
 ---
 
+## 2026-05-24 — Persona updates auto-apply (no confirm card)
+
+- **Context:** `update_persona` was a `kind: "mutate"` chat tool, so correcting a fact in chat ("actually I'm a designer") produced an Apply/Cancel card the user had to click before the persona memory updated. Every other persona surface (Profile tab inline edit, onboarding persona-confirm card) already gives the user direct control; the in-chat confirm doubled the friction without adding safety.
+- **Choice:** Switched `update_persona` to `kind: "read"` so the chat loop auto-executes it like `save_onboarding_answer`. The write still goes through the same `user_profile` memory + `supersedeMemoryPg` superseding chain — only the gating changed. Profile-tab refresh still rides the existing `bump()` → `useRevalidate` path.
+- **Why:** Persona is a paragraph of self-description, not a mailbox-modifying action. Mistakes are visible, scoped to one user, and instantly re-correctable in the same chat ("actually no, make it a designer"). The confirm card created the worst kind of friction: it interrupted the conversational repair loop the user was already in.
+- **Rejected:**
+  - *Keep the confirm but auto-click after N seconds* — fragile UX, the user still sees a flash of card.
+  - *Introduce a new `kind: "mutate_auto"` literal* — single-use abstraction; PATTERNS.md's "Anti-patterns" calls these out. `save_onboarding_answer` already shows the precedent for "write-but-auto-runs" lives under `kind: "read"`.
+  - *Make all mutate tools auto-apply* — out of scope and dangerous. Folder/rule/audit actions touch the user's actual mailbox via the provider; persona only writes one row of agent memory.
+- **Scope guard:** every other mutating tool (`rename_proposed_folder`, `set_proposed_folder_status`, `set_rule_status`, `update_rule_match`, `apply_rule`, `dismiss_audit_finding`, `set_audit_override`, `clear_pending_proposals`, `trigger_propose_structure`, `add_proposed_folder`, `write_memory`) keeps its `kind: "mutate"` and its Apply/Cancel card.
+- **Doc drift to fix later:** `docs/PATTERNS.md` "Memory system" section calls `update_persona` a mutate tool. That line is now stale.
+
 ## 2026-05-21 — Landing page at `/`, waitlist via Supabase
 
 - **Context:** App was `/app`-only; anonymous visitors got a redirect. Pre-launch needed a real top-of-funnel.
