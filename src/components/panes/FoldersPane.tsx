@@ -54,6 +54,7 @@ function summary(row: FolderRow): string {
 export default function FoldersPane({ active }: { active: boolean }) {
   const [folders, setFolders] = useState<FolderRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [openFolder, setOpenFolder] = useState<string | null>(null);
   const { toast } = useToast();
@@ -61,8 +62,12 @@ export default function FoldersPane({ active }: { active: boolean }) {
   const load = useCallback(async () => {
     try {
       const res = await fetch("/api/mail-analyzer/folders");
+      if (!res.ok) throw new Error("failed to load folders");
       const data = await res.json();
       setFolders(data.folders ?? []);
+      setError(false);
+    } catch {
+      setError(true);
     } finally {
       setLoading(false);
     }
@@ -119,6 +124,22 @@ export default function FoldersPane({ active }: { active: boolean }) {
     return (
       <div className="mx-auto max-w-3xl px-8 py-10">
         <p className="text-sm text-muted">Loading folders…</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="mx-auto flex max-w-3xl flex-col gap-6 px-8 py-10">
+        <div>
+          <h1 className="mb-1 text-2xl font-semibold tracking-tight">Folders</h1>
+          <p className="text-sm text-muted">
+            The current structure of your mailbox lives here.
+          </p>
+        </div>
+        <div className="rounded-xl border border-border bg-danger-soft p-4 text-sm">
+          Couldn&apos;t load your folders. Try again in a moment.
+        </div>
       </div>
     );
   }

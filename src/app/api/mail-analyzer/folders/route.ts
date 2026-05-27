@@ -12,6 +12,6 @@ export async function GET() {
     return NextResponse.json({ folders });
   } catch (e) {
     console.error("folders route error", e);
-    return NextResponse.json({ folders: [] });
+    return NextResponse.json({ error: "failed to load folders" }, { status: 500 });
   }
 }

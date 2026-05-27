@@ -14,7 +14,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ name: s
     const samples = await Promise.all(
       rules.map(async (r) => ({
         ruleId: r.id,
-        subjects: await getSampleSubjectsForRulePg(auth.userId, r.id, 5),
+        subjects: await getSampleSubjectsForRulePg(auth.userId, r, 5),
       })),
     );
     const samplesByRule = new Map(samples.map((s) => [s.ruleId, s.subjects]));
@@ -24,6 +24,6 @@ export async function GET(_req: Request, { params }: { params: Promise<{ name: s
     });
   } catch (e) {
     console.error("folder detail route error", e);
-    return NextResponse.json({ folder: folderName, rules: [] });
+    return NextResponse.json({ error: "failed to load folder" }, { status: 500 });
   }
 }

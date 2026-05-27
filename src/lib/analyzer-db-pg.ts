@@ -1230,11 +1230,9 @@ export async function getRulesForFolderPg(
 /** Up to N recent subjects matching a rule's match clause, in date desc. */
 export async function getSampleSubjectsForRulePg(
   userId: string,
-  ruleId: number,
+  rule: FolderRule,
   limit: number = 5,
 ): Promise<{ id: string; subject: string | null; sender_email: string; date_received: string }[]> {
-  const rule = await getFolderRulePg(userId, ruleId);
-  if (!rule) return [];
   const db = getDrizzleDb();
   const rows =
     rule.match_type === "sender_email"
